@@ -1601,6 +1601,55 @@ async def test_get_garmin_coach_workouts_rejects_invalid_date(
     mock_garmin_client.query_garmin_graphql.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_get_training_plan_workouts_no_active_plan(
+    app_with_workouts, mock_garmin_client
+):
+    """Test get_training_plan_workouts handles Garmin's null no-plan response"""
+    mock_garmin_client.query_garmin_graphql.return_value = {
+        "data": {"trainingPlanScalar": None}
+    }
+
+    result = await app_with_workouts.call_tool(
+        "get_training_plan_workouts",
+        {"calendar_date": "2024-01-15"},
+    )
+
+    assert result[0][0].text == "No training plan workouts scheduled for 2024-01-15."
+    mock_garmin_client.query_garmin_graphql.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_training_plan_workouts_null_schedule_summaries(
+    app_with_workouts, mock_garmin_client
+):
+    """Test get_training_plan_workouts handles completed plans with null schedules"""
+    import json as json_module
+
+    mock_garmin_client.query_garmin_graphql.return_value = {
+        "data": {
+            "trainingPlanScalar": {
+                "trainingPlanWorkoutScheduleDTOS": [
+                    {
+                        "planName": "Completed Garmin Run Coach Plan",
+                        "workoutScheduleSummaries": None,
+                    }
+                ]
+            }
+        }
+    }
+
+    result = await app_with_workouts.call_tool(
+        "get_training_plan_workouts",
+        {"calendar_date": "2024-01-15"},
+    )
+
+    result_data = json_module.loads(result[0][0].text)
+    assert result_data["training_plans"] == ["Completed Garmin Run Coach Plan"]
+    assert result_data["count"] == 0
+    assert result_data["workouts"] == []
+
+
 # Delete workout tests
 @pytest.mark.asyncio
 async def test_delete_workout_success(app_with_workouts, mock_garmin_client):

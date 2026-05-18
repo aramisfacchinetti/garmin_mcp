@@ -16,6 +16,7 @@ import json
 import pytest
 from unittest.mock import Mock
 from mcp.server.fastmcp import FastMCP
+from garminconnect import GarminConnectConnectionError
 
 from garmin_mcp import (
     devices,
@@ -385,6 +386,26 @@ async def test_add_gear_to_activity_tool(app_with_gear, mock_garmin_client):
 
 
 @pytest.mark.asyncio
+async def test_add_gear_to_activity_missing_gear_is_unavailable(
+    app_with_gear, mock_garmin_client
+):
+    """Test add_gear_to_activity reports missing gear as unavailable data"""
+    mock_garmin_client.add_gear_to_activity.side_effect = GarminConnectConnectionError(
+        "API Error 404 - Gear with uuid: missing doesn't exist."
+    )
+
+    result = await app_with_gear.call_tool(
+        "add_gear_to_activity",
+        {"activity_id": 12345678901, "gear_uuid": "missing"},
+    )
+
+    assert result[0][0].text == (
+        "No gear association changed; gear missing was not found "
+        "for activity 12345678901."
+    )
+
+
+@pytest.mark.asyncio
 async def test_remove_gear_from_activity_tool(app_with_gear, mock_garmin_client):
     """Test remove_gear_from_activity tool"""
     mock_garmin_client.remove_gear_from_activity.return_value = {}
@@ -394,6 +415,26 @@ async def test_remove_gear_from_activity_tool(app_with_gear, mock_garmin_client)
     )
     assert result is not None
     mock_garmin_client.remove_gear_from_activity.assert_called_once_with("abc123", 12345678901)
+
+
+@pytest.mark.asyncio
+async def test_remove_gear_from_activity_missing_gear_is_unavailable(
+    app_with_gear, mock_garmin_client
+):
+    """Test remove_gear_from_activity reports missing gear as unavailable data"""
+    mock_garmin_client.remove_gear_from_activity.side_effect = GarminConnectConnectionError(
+        "API Error 404 - Gear with uuid: missing doesn't exist."
+    )
+
+    result = await app_with_gear.call_tool(
+        "remove_gear_from_activity",
+        {"activity_id": 12345678901, "gear_uuid": "missing"},
+    )
+
+    assert result[0][0].text == (
+        "No gear association changed; gear missing was not found "
+        "for activity 12345678901."
+    )
 
 
 # Women's Health module tests

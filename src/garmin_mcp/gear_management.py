@@ -29,6 +29,14 @@ def _parse_iso_date(iso_string: str) -> str:
     return iso_string.split("T")[0] if "T" in iso_string else iso_string
 
 
+def _is_missing_gear(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "gear" in message
+        and ("doesn't exist" in message or "not found" in message or "404" in message)
+    )
+
+
 def configure(client):
     """Configure the module with the Garmin client instance"""
     global garmin_client
@@ -176,6 +184,11 @@ def register_tools(app):
                 indent=2,
             )
         except Exception as e:
+            if _is_missing_gear(e):
+                return (
+                    f"No gear association changed; gear {gear_uuid} was not found "
+                    f"for activity {activity_id}."
+                )
             return f"Error adding gear to activity: {str(e)}"
 
     @app.tool()
@@ -201,6 +214,11 @@ def register_tools(app):
                 indent=2,
             )
         except Exception as e:
+            if _is_missing_gear(e):
+                return (
+                    f"No gear association changed; gear {gear_uuid} was not found "
+                    f"for activity {activity_id}."
+                )
             return f"Error removing gear from activity: {str(e)}"
 
     return app
