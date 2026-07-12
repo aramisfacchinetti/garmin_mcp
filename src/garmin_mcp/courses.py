@@ -66,6 +66,74 @@ _ACTIVITY_TYPE_IDS = {
 }
 
 
+def upload_course_file(
+    gpx_path: str,
+    *,
+    course_name: Optional[str] = None,
+    activity_type: str = "running",
+    description: Optional[str] = None,
+) -> dict[str, Any]:
+    """Upload a GPX file as a Garmin course and return structured metadata."""
+    if garmin_client is None:
+        raise RuntimeError("Course module is not configured with a Garmin client")
+    path = pathlib.Path(gpx_path)
+    if path.suffix.lower() != ".gpx":
+        raise ValueError(
+            f"only .gpx files are allowed, got: {path.suffix or '(no extension)'}"
+        )
+    gpx_path = str(path.resolve())
+    if not os.path.isfile(gpx_path):
+        raise FileNotFoundError(f"GPX file not found: {gpx_path}")
+
+    activity_type_id = _ACTIVITY_TYPE_IDS.get(activity_type.lower())
+    if activity_type_id is None:
+        raise ValueError(
+            f"unknown activity_type '{activity_type}'. "
+            f"Supported: {', '.join(sorted(_ACTIVITY_TYPE_IDS))}."
+        )
+
+    with open(gpx_path, "rb") as f:
+        gpx_bytes = f.read()
+
+    parsed = garmin_client.client.post(
+        "connectapi",
+        "/course-service/course/import",
+        files={
+            "file": (
+                os.path.basename(gpx_path),
+                gpx_bytes,
+                "application/gpx+xml",
+            )
+        },
+        api=True,
+    )
+
+    effective_name = (
+        course_name
+        or parsed.get("courseName")
+        or os.path.splitext(os.path.basename(gpx_path))[0]
+    )
+    payload = _build_course_payload(
+        parsed,
+        course_name=effective_name,
+        activity_type_id=activity_type_id,
+        description=description,
+    )
+    saved = garmin_client.client.post(
+        "connectapi", "/course-service/course", json=payload, api=True,
+    )
+    return {
+        "status": "success",
+        "course_id": saved.get("courseId"),
+        "name": saved.get("courseName"),
+        "distance_m": saved.get("distanceMeter"),
+        "elevation_gain_m": saved.get("elevationGainMeter"),
+        "elevation_loss_m": saved.get("elevationLossMeter"),
+        "activity_type_id": saved.get("activityTypePk"),
+        "url": f"https://connect.{garmin_client.client.domain}/modern/course/{saved.get('courseId')}",
+    }
+
+
 def _build_course_payload(
     parsed: Dict[str, Any],
     course_name: str,
@@ -220,67 +288,13 @@ def register_tools(app):
             description: Optional description shown on the course detail page.
         """
         try:
-            _p = pathlib.Path(gpx_path)
-            if _p.suffix.lower() != ".gpx":
-                return f"Error: only .gpx files are allowed, got: {_p.suffix or '(no extension)'}"
-            gpx_path = str(_p.resolve())
-            if not os.path.isfile(gpx_path):
-                return f"Error: GPX file not found: {gpx_path}"
-
-            activity_type_id = _ACTIVITY_TYPE_IDS.get(activity_type.lower())
-            if activity_type_id is None:
-                return (
-                    f"Error: unknown activity_type '{activity_type}'. "
-                    f"Supported: {', '.join(sorted(_ACTIVITY_TYPE_IDS))}."
-                )
-
-            with open(gpx_path, "rb") as f:
-                gpx_bytes = f.read()
-
-            # Step 1: parse the GPX server-side
-            parsed = garmin_client.client.post(
-                "connectapi",
-                "/course-service/course/import",
-                files={
-                    "file": (
-                        os.path.basename(gpx_path),
-                        gpx_bytes,
-                        "application/gpx+xml",
-                    )
-                },
-                api=True,
-            )
-
-            effective_name = (
-                course_name
-                or parsed.get("courseName")
-                or os.path.splitext(os.path.basename(gpx_path))[0]
-            )
-
-            # Step 2: build the create payload and save
-            payload = _build_course_payload(
-                parsed,
-                course_name=effective_name,
-                activity_type_id=activity_type_id,
+            saved = upload_course_file(
+                gpx_path,
+                course_name=course_name,
+                activity_type=activity_type,
                 description=description,
             )
-
-            saved = garmin_client.client.post(
-                "connectapi", "/course-service/course", json=payload, api=True,
-            )
-            return json.dumps(
-                {
-                    "status": "success",
-                    "course_id": saved.get("courseId"),
-                    "name": saved.get("courseName"),
-                    "distance_m": saved.get("distanceMeter"),
-                    "elevation_gain_m": saved.get("elevationGainMeter"),
-                    "elevation_loss_m": saved.get("elevationLossMeter"),
-                    "activity_type_id": saved.get("activityTypePk"),
-                    "url": f"https://connect.{garmin_client.client.domain}/modern/course/{saved.get('courseId')}",
-                },
-                indent=2,
-            )
+            return json.dumps(saved, indent=2)
 
         except Exception as e:
             return f"Error uploading course: {str(e)}"
