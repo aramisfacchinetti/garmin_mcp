@@ -182,7 +182,7 @@ def _fix_hr_zone_step(step: dict) -> None:
             step.pop('targetValueTwo', None)
 
     # Recurse into nested steps (RepeatGroupDTO)
-    for nested in step.get('workoutSteps', []):
+    for nested in (step.get('workoutSteps') or []):
         _fix_hr_zone_step(nested)
 
 
@@ -200,7 +200,7 @@ def _fix_repeat_group_step(step: dict) -> None:
     - Recurses into nested workoutSteps so nested repeat groups are also fixed.
     """
     if step.get('type') != 'RepeatGroupDTO':
-        for nested in step.get('workoutSteps', []):
+        for nested in (step.get('workoutSteps') or []):
             _fix_repeat_group_step(nested)
         return
 
@@ -217,7 +217,7 @@ def _fix_repeat_group_step(step: dict) -> None:
         if value is not None:
             step['numberOfIterations'] = int(value)
 
-    for nested in step.get('workoutSteps', []):
+    for nested in (step.get('workoutSteps') or []):
         _fix_repeat_group_step(nested)
 
 
@@ -268,14 +268,14 @@ def _validate_end_condition_step(step: dict, path: str) -> None:
                 f"requires conditionTypeKey '{expected_key}', got '{condition_key}'"
             )
 
-    for index, nested in enumerate(step.get('workoutSteps', [])):
+    for index, nested in enumerate(step.get('workoutSteps') or []):
         _validate_end_condition_step(nested, f"{path}.workoutSteps[{index}]")
 
 
 def _validate_end_condition_steps(workout_data: dict) -> None:
     """Validate all workout step endCondition blocks before upload."""
-    for segment_index, segment in enumerate(workout_data.get('workoutSegments', [])):
-        for step_index, step in enumerate(segment.get('workoutSteps', [])):
+    for segment_index, segment in enumerate(workout_data.get('workoutSegments') or []):
+        for step_index, step in enumerate(segment.get('workoutSteps') or []):
             path = f"workoutSegments[{segment_index}].workoutSteps[{step_index}]"
             _validate_end_condition_step(step, path)
 
@@ -321,21 +321,21 @@ def _validate_target_type_step(step: dict, path: str) -> None:
     _validate_target_type_block(step, path, 'targetType')
     _validate_target_type_block(step, path, 'secondaryTargetType')
 
-    for index, nested in enumerate(step.get('workoutSteps', [])):
+    for index, nested in enumerate(step.get('workoutSteps') or []):
         _validate_target_type_step(nested, f"{path}.workoutSteps[{index}]")
 
 
 def _validate_target_type_steps(workout_data: dict) -> None:
     """Walk all workout steps and validate known targetType id/key pairs."""
-    for segment_index, segment in enumerate(workout_data.get('workoutSegments', [])):
-        for step_index, step in enumerate(segment.get('workoutSteps', [])):
+    for segment_index, segment in enumerate(workout_data.get('workoutSegments') or []):
+        for step_index, step in enumerate(segment.get('workoutSteps') or []):
             path = f"workoutSegments[{segment_index}].workoutSteps[{step_index}]"
             _validate_target_type_step(step, path)
 
 
 def _curate_workout_summary(workout: dict) -> dict:
     """Extract essential workout metadata for list views"""
-    sport_type = workout.get('sportType', {})
+    sport_type = workout.get('sportType') or {}
 
     summary = {
         "id": workout.get('workoutId'),
@@ -448,14 +448,14 @@ def _curate_workout_step(step: dict) -> dict:
         curated['exercise_name'] = step.get('exerciseName')
     if step.get('weightValue') is not None:
         curated['weight_value'] = step.get('weightValue')
-        weight_unit = step.get('weightUnit', {})
+        weight_unit = step.get('weightUnit') or {}
         if weight_unit and weight_unit.get('unitKey'):
             curated['weight_unit'] = weight_unit.get('unitKey')
 
     # Repeat info for repeat steps
     if step.get('type') == 'RepeatGroupDTO':
         curated['repeat_count'] = step.get('numberOfIterations')
-        nested_steps = step.get('workoutSteps', [])
+        nested_steps = step.get('workoutSteps') or []
         if nested_steps:
             curated['steps'] = [_curate_workout_step(s) for s in nested_steps]
             curated['step_count'] = len(nested_steps)
@@ -465,7 +465,7 @@ def _curate_workout_step(step: dict) -> dict:
 
 def _curate_workout_segment(segment: dict) -> dict:
     """Extract essential segment information including workout steps"""
-    sport_type = segment.get('sportType', {})
+    sport_type = segment.get('sportType') or {}
 
     curated = {
         "order": segment.get('segmentOrder'),
@@ -479,7 +479,7 @@ def _curate_workout_segment(segment: dict) -> dict:
         curated['estimated_distance_meters'] = segment.get('estimatedDistanceInMeters')
 
     # Workout steps - the actual content of the segment
-    steps = segment.get('workoutSteps', [])
+    steps = segment.get('workoutSteps') or []
     if steps:
         curated['steps'] = [_curate_workout_step(s) for s in steps]
         curated['step_count'] = len(steps)
@@ -532,7 +532,7 @@ def _curate_workout_details(workout: dict) -> dict:
         details['estimated_training_effect'] = workout.get('estimatedTrainingEffect')
 
     # Curate segments with workout steps
-    segments = workout.get('workoutSegments', [])
+    segments = workout.get('workoutSegments') or []
     if segments:
         details['segments'] = [_curate_workout_segment(seg) for seg in segments]
         details['segment_count'] = len(segments)
@@ -609,7 +609,7 @@ def _is_already_scheduled(workout_id: int, calendar_date: str) -> bool:
         }
         result = garmin_client.query_garmin_graphql(query) or {}
         existing = (
-            result.get("data", {}).get("workoutScheduleSummariesScalar", []) or []
+            (result.get("data") or {}).get("workoutScheduleSummariesScalar") or []
         )
         for entry in existing:
             if (
@@ -1078,7 +1078,7 @@ def register_tools(app):
             if not result or "data" not in result:
                 return "No scheduled workouts found or error querying data."
 
-            scheduled = result.get("data", {}).get("workoutScheduleSummariesScalar", [])
+            scheduled = (result.get("data") or {}).get("workoutScheduleSummariesScalar") or []
 
             if not scheduled:
                 return f"No workouts scheduled between {start_date} and {end_date}."

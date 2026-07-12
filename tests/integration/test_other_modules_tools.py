@@ -117,6 +117,23 @@ async def test_get_primary_training_device_tool(app_with_devices, mock_garmin_cl
 
 
 @pytest.mark.asyncio
+async def test_get_primary_training_device_handles_null_nested_sections(
+    app_with_devices, mock_garmin_client
+):
+    """Optional device sections may be present as explicit nulls."""
+    mock_garmin_client.get_primary_training_device.return_value = {
+        "PrimaryTrainingDevice": None,
+        "PrimaryTrainingDevices": None,
+        "WearableDevices": None,
+    }
+
+    result = await app_with_devices.call_tool("get_primary_training_device", {})
+
+    data = json.loads(result[0][0].text)
+    assert data == {"primary_device_id": None}
+
+
+@pytest.mark.asyncio
 async def test_get_device_solar_data_tool(app_with_devices, mock_garmin_client):
     """Test get_device_solar_data tool"""
     solar_data = {"solarIntensity": 75, "batteryLevel": 90}
@@ -162,6 +179,26 @@ async def test_get_weigh_ins_tool(app_with_weight, mock_garmin_client):
     )
     assert result is not None
     mock_garmin_client.get_weigh_ins.assert_called_once_with("2024-01-08", "2024-01-15")
+
+
+@pytest.mark.asyncio
+async def test_get_weigh_ins_handles_null_optional_sections(
+    app_with_weight, mock_garmin_client
+):
+    """Weight summaries can contain null metric and average sections."""
+    mock_garmin_client.get_weigh_ins.return_value = {
+        "dailyWeightSummaries": [{"allWeightMetrics": None}],
+        "totalAverage": None,
+    }
+
+    result = await app_with_weight.call_tool(
+        "get_weigh_ins",
+        {"start_date": "2024-01-08", "end_date": "2024-01-15"},
+    )
+
+    data = json.loads(result[0][0].text)
+    assert data["measurement_count"] == 0
+    assert data["measurements"] == []
 
 
 @pytest.mark.asyncio

@@ -417,6 +417,29 @@ async def test_update_custom_food(app_with_nutrition, mock_garmin_client):
 
 
 @pytest.mark.asyncio
+async def test_update_custom_food_handles_null_food_metadata(
+    app_with_nutrition, mock_garmin_client
+):
+    """A search result with foodMetaData=null must not abort the update."""
+    mock_garmin_client.connectapi.return_value = {
+        "customFoods": [{"foodMetaData": None, "nutritionContents": None}]
+    }
+    mock_garmin_client.client.put.return_value = {}
+
+    result = await app_with_nutrition.call_tool(
+        "update_custom_food",
+        {
+            "food_id": "abc123",
+            "serving_id": "srv456",
+            "food_name": "Simple Food",
+            "calories": 100,
+        },
+    )
+
+    assert "Error" not in result[0][0].text
+
+
+@pytest.mark.asyncio
 async def test_update_custom_food_204(app_with_nutrition, mock_garmin_client):
     """Test update_custom_food with 204 response"""
     mock_garmin_client.client.put.return_value = {}

@@ -551,11 +551,12 @@ def register_tools(app):
                     f"&start=0&limit=20&includeContent=true"
                 )
                 search_data = garmin_client.connectapi(search_url)
-                foods = search_data.get("customFoods", []) if isinstance(search_data, dict) else []
+                foods = (search_data.get("customFoods") or []) if isinstance(search_data, dict) else []
                 for f in foods:
-                    if str(f.get("foodMetaData", {}).get("foodId", "")) == food_id:
+                    food_meta = f.get("foodMetaData") or {}
+                    if str(food_meta.get("foodId", "")) == food_id:
                         existing_nutrition = (f.get("nutritionContents") or [{}])[0]
-                        existing_brand = f.get("foodMetaData", {}).get("brandName")
+                        existing_brand = food_meta.get("brandName")
                         break
             except Exception:
                 pass  # proceed without existing data; caller's values win
@@ -689,7 +690,7 @@ def register_tools(app):
 
             meals_url = f"/nutrition-service/meals/{meal_date}"
             meals_data = garmin_client.connectapi(meals_url)
-            meals = (meals_data or {}).get("meals", [])
+            meals = (meals_data or {}).get("meals") or []
 
             meal_id = None
             for m in meals:
@@ -770,7 +771,7 @@ def register_tools(app):
 
             meals_url = f"/nutrition-service/meals/{meal_date}"
             meals_data = garmin_client.connectapi(meals_url)
-            meals = (meals_data or {}).get("meals", [])
+            meals = (meals_data or {}).get("meals") or []
 
             # Match meal_time against startTime/endTime windows; fall back to SNACKS
             meal_id = None
@@ -895,12 +896,12 @@ def register_tools(app):
                 f"&start=0&limit=10&includeContent=true"
             )
             search_data = garmin_client.connectapi(search_url)
-            foods = search_data.get("customFoods", []) if isinstance(search_data, dict) else []
+            foods = (search_data.get("customFoods") or []) if isinstance(search_data, dict) else []
 
             food_id = None
             serving_id = None
             for f in foods:
-                meta = f.get("foodMetaData", f)
+                meta = f.get("foodMetaData") or f
                 name_match = meta.get("foodName", "").lower() == food_name.lower()
                 if name_match:
                     food_id = str(meta.get("foodId") or f.get("foodId", ""))
@@ -935,7 +936,7 @@ def register_tools(app):
                 )
                 # api=True means create_resp is already a parsed dict; errors raise GarminConnectConnectionError.
                 if create_resp:  # non-empty: response body contains foodId/servingId
-                    meta = create_resp.get("foodMetaData", create_resp)
+                    meta = create_resp.get("foodMetaData") or create_resp
                     food_id = str(meta.get("foodId", ""))
                     contents = create_resp.get("nutritionContents", [])
                     if contents:
@@ -948,9 +949,9 @@ def register_tools(app):
                         f"&start=0&limit=10&includeContent=true"
                     )
                     lookup_data = garmin_client.connectapi(lookup_url)
-                    lookup_foods = lookup_data.get("customFoods", []) if isinstance(lookup_data, dict) else []
+                    lookup_foods = (lookup_data.get("customFoods") or []) if isinstance(lookup_data, dict) else []
                     for f in lookup_foods:
-                        meta = f.get("foodMetaData", f)
+                        meta = f.get("foodMetaData") or f
                         if meta.get("foodName", "").lower() == food_name.lower():
                             food_id = str(meta.get("foodId") or f.get("foodId", ""))
                             contents = f.get("nutritionContents", [])
@@ -962,7 +963,7 @@ def register_tools(app):
 
             # 3. Resolve meal_id from meal_time
             meals_data = garmin_client.connectapi(f"/nutrition-service/meals/{meal_date}")
-            meals = (meals_data or {}).get("meals", [])
+            meals = (meals_data or {}).get("meals") or []
             meal_id = None
             for m in meals:
                 start = m.get("startTime")

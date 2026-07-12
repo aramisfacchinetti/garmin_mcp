@@ -268,7 +268,7 @@ def register_tools(app):
                     "events": []
                 }
 
-                for event in day.get('bodyBatteryActivityEvent', []):
+                for event in (day.get('bodyBatteryActivityEvent') or []):
                     entry["events"].append({
                         "type": event.get('eventType'),
                         "start_time": event.get('eventStartTimeGmt'),
@@ -397,7 +397,7 @@ def register_tools(app):
             }
 
             # Calculate average from time-series if available
-            hr_values = hr_data.get('heartRateValues', [])
+            hr_values = hr_data.get('heartRateValues') or []
             if hr_values:
                 valid_values = [v[1] for v in hr_values if v[1] and v[1] > 0]
                 if valid_values:
@@ -475,8 +475,10 @@ def register_tools(app):
                 summary['sleep_end'] = daily_sleep.get('sleepEndTimestampGMT')
 
                 # Sleep score and quality
-                summary['sleep_score'] = daily_sleep.get('sleepScores', {}).get('overall', {}).get('value')
-                summary['sleep_score_qualifier'] = daily_sleep.get('sleepScores', {}).get('overall', {}).get('qualifierKey')
+                sleep_scores = daily_sleep.get('sleepScores') or {}
+                sleep_score = sleep_scores.get('overall') or {}
+                summary['sleep_score'] = sleep_score.get('value')
+                summary['sleep_score_qualifier'] = sleep_score.get('qualifierKey')
 
                 # Sleep phases (in seconds)
                 summary['deep_sleep_seconds'] = daily_sleep.get('deepSleepSeconds')
@@ -561,7 +563,7 @@ def register_tools(app):
             }
 
             # Calculate stress distribution from time-series if available
-            stress_values = stress_data.get('stressValuesArray', [])
+            stress_values = stress_data.get('stressValuesArray') or []
             if stress_values:
                 # Filter valid stress readings (exclude -1 and -2 which are gaps/activity)
                 valid_values = [v[1] for v in stress_values if v[1] and v[1] > 0]
@@ -737,7 +739,7 @@ def register_tools(app):
             # Curate the weekly steps data (API returns a list with nested 'values')
             curated_weeks = []
             for week in weekly_data:
-                values = week.get("values", {})
+                values = week.get("values") or {}
                 week_entry = {
                     "week_start": week.get("calendarDate"),
                     "total_steps": values.get("totalSteps"),

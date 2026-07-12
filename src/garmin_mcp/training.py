@@ -193,7 +193,7 @@ def register_tools(app):
             }
 
             # Parse stats by activity type
-            stats = data.get("stats", {})
+            stats = data.get("stats") or {}
             for activity_type, activity_stats in stats.items():
                 if metric in activity_stats:
                     metric_data = activity_stats[metric]
@@ -234,7 +234,7 @@ def register_tools(app):
             )
 
             # Get the most recent daily score (first in list)
-            daily_scores = hill_score_data.get("hillScoreDTOList", [])
+            daily_scores = hill_score_data.get("hillScoreDTOList") or []
             latest_score = daily_scores[0] if daily_scores else {}
 
             # Curate to essential fields only
@@ -287,7 +287,7 @@ def register_tools(app):
             activity_type_mapping = _get_activity_type_mapping()
 
             # Extract the current endurance score DTO
-            score_dto = endurance_data.get("enduranceScoreDTO", {})
+            score_dto = endurance_data.get("enduranceScoreDTO") or {}
 
             # Map classification number to label
             classification_labels = {
@@ -309,7 +309,7 @@ def register_tools(app):
             )
 
             # Process contributors with activity type names
-            raw_contributors = score_dto.get("contributors", [])
+            raw_contributors = score_dto.get("contributors") or []
             contributors = (
                 [_map_contributor(c, activity_type_mapping) for c in raw_contributors]
                 if raw_contributors
@@ -317,12 +317,13 @@ def register_tools(app):
             )
 
             # Process weekly breakdown from groupMap
-            group_map = endurance_data.get("groupMap", {})
+            group_map = endurance_data.get("groupMap") or {}
             weekly_breakdown = []
             for week_date, week_data in sorted(group_map.items()):
+                week_data = week_data or {}
                 week_contributors = [
                     _map_contributor(c, activity_type_mapping)
-                    for c in week_data.get("enduranceContributorDTOList", [])
+                    for c in (week_data.get("enduranceContributorDTOList") or [])
                 ]
                 weekly_breakdown.append(
                     {
@@ -399,7 +400,7 @@ def register_tools(app):
                 return f"No activity found with ID {activity_id}."
 
             # Extract training effect data from activity summary
-            summary = activity.get("summaryDTO", {})
+            summary = activity.get("summaryDTO") or {}
 
             # Curate to essential fields only
             curated = {
@@ -441,8 +442,8 @@ def register_tools(app):
                 return f"No HRV data found for {date}."
 
             # Extract the summary from hrvSummary key
-            summary = hrv_data.get("hrvSummary", {})
-            baseline = summary.get("baseline", {})
+            summary = hrv_data.get("hrvSummary") or {}
+            baseline = summary.get("baseline") or {}
 
             # Curate to essential fields only
             curated = {
@@ -466,7 +467,7 @@ def register_tools(app):
 
             # Optionally include the detailed HRV readings timeseries
             if return_timeseries:
-                readings = hrv_data.get("hrvReadings", [])
+                readings = hrv_data.get("hrvReadings") or []
                 curated["hrv_readings"] = [
                     {
                         "time": r.get("readingTimeLocal"),
@@ -525,7 +526,7 @@ def register_tools(app):
 
             # Optionally include component details
             if details:
-                components = fitness_age.get("components", {})
+                components = fitness_age.get("components") or {}
                 curated_components = {}
 
                 for comp_name, comp_data in components.items():
@@ -583,12 +584,14 @@ def register_tools(app):
             # rather than causing `NoneType has no attribute 'get'` errors.
             recent_status = (status.get("mostRecentTrainingStatus") or {})
             latest_data = (recent_status.get("latestTrainingStatusData") or {})
+            if not isinstance(latest_data, dict):
+                latest_data = {}
 
             # Get first device data (usually the primary device)
-            device_data = {}
-            for device_id, data in latest_data.items():
-                device_data = data
-                break
+            device_data = next(
+                (data for data in latest_data.values() if isinstance(data, dict)),
+                {},
+            )
 
             acwr_data = (device_data.get("acuteTrainingLoadDTO") or {})
 
@@ -599,10 +602,12 @@ def register_tools(app):
             # Training load balance
             load_balance = (status.get("mostRecentTrainingLoadBalance") or {})
             load_map = (load_balance.get("metricsTrainingLoadBalanceDTOMap") or {})
-            load_data = {}
-            for device_id, data in load_map.items():
-                load_data = data
-                break
+            if not isinstance(load_map, dict):
+                load_map = {}
+            load_data = next(
+                (data for data in load_map.values() if isinstance(data, dict)),
+                {},
+            )
 
             # Curate to essential fields only - remove userIds
             curated = {
@@ -747,8 +752,8 @@ def register_tools(app):
                     ]
             else:
                 # Latest format: {speed_and_heart_rate: {...}, power: {...}}
-                speed_hr = threshold.get("speed_and_heart_rate", {})
-                power = threshold.get("power", {})
+                speed_hr = threshold.get("speed_and_heart_rate") or {}
+                power = threshold.get("power") or {}
 
                 curated = {
                     # Speed and heart rate data
@@ -1028,7 +1033,7 @@ def register_tools(app):
             try:
                 data = garmin_client.get_hrv_data(date_str)
                 if data:
-                    hrv_summary = data.get("hrvSummary", {})
+                    hrv_summary = data.get("hrvSummary") or {}
                     entry: Dict[str, Any] = {"date": date_str}
                     last_night = hrv_summary.get("lastNight")
                     weekly_avg = hrv_summary.get("weeklyAvg")

@@ -742,3 +742,23 @@ async def test_get_training_status_no_cycling_vo2_when_absent(app_with_training,
         assert "cycling_vo2_max_precise" not in data
     except (json.JSONDecodeError, AttributeError):
         assert "cycling_vo2_max" not in text
+
+
+@pytest.mark.asyncio
+async def test_get_training_status_handles_null_cycling_vo2(app_with_training, mock_garmin_client):
+    """Garmin returns cycling=null when no cycling estimate exists."""
+    import copy
+
+    status_with_null_cycling = copy.deepcopy(MOCK_TRAINING_STATUS)
+    status_with_null_cycling["mostRecentVO2Max"]["cycling"] = None
+    mock_garmin_client.get_training_status.return_value = status_with_null_cycling
+
+    result = await app_with_training.call_tool(
+        "get_training_status",
+        {"date": "2024-01-15"},
+    )
+
+    text = result[0][0].text
+    data = json.loads(text)
+    assert data["vo2_max"] == 52.5
+    assert "cycling_vo2_max" not in data

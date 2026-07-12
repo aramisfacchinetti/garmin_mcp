@@ -356,6 +356,27 @@ async def test_get_sleep_summary_tool(app_with_health_wellness, mock_garmin_clie
 
 
 @pytest.mark.asyncio
+async def test_get_sleep_summary_handles_null_sleep_scores(
+    app_with_health_wellness, mock_garmin_client
+):
+    """Garmin can return sleepScores=null while the rest of sleep data is present."""
+    import copy
+    import json
+
+    sleep_with_null_scores = copy.deepcopy(MOCK_SLEEP_DATA)
+    sleep_with_null_scores["dailySleepDTO"]["sleepScores"] = None
+    mock_garmin_client.get_sleep_data.return_value = sleep_with_null_scores
+
+    result = await app_with_health_wellness.call_tool(
+        "get_sleep_summary",
+        {"date": "2024-01-15"},
+    )
+
+    data = json.loads(result[0][0].text)
+    assert "sleep_score" not in data
+
+
+@pytest.mark.asyncio
 async def test_get_stress_data_tool(app_with_health_wellness, mock_garmin_client):
     """Test get_stress_data tool returns stress data"""
     # Setup mock

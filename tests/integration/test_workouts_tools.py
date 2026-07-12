@@ -137,6 +137,32 @@ async def test_get_workout_by_id_tool(app_with_workouts, mock_garmin_client):
 
 
 @pytest.mark.asyncio
+async def test_get_workout_by_id_handles_null_optional_sections(
+    app_with_workouts, mock_garmin_client
+):
+    """Partial workout payloads may omit sport and step sections as null."""
+    import copy
+    import json as json_module
+
+    workout_with_null_sections = copy.deepcopy(MOCK_WORKOUT_DETAILS)
+    workout_with_null_sections["sportType"] = None
+    workout_with_null_sections["workoutSegments"][0]["sportType"] = None
+    workout_with_null_sections["workoutSegments"][0]["workoutSteps"] = None
+    mock_garmin_client.get_workout_by_id.return_value = workout_with_null_sections
+
+    result = await app_with_workouts.call_tool(
+        "get_workout_by_id",
+        {"workout_id": 123456},
+    )
+
+    data = json_module.loads(result[0][0].text)
+    assert data["id"] == 123456
+    assert data["segments"][0]["order"] == 1
+    assert "sport" not in data["segments"][0]
+    assert "steps" not in data["segments"][0]
+
+
+@pytest.mark.asyncio
 async def test_get_workout_by_id_tool_handles_swim_secondary_targets(
     app_with_workouts, mock_garmin_client
 ):
