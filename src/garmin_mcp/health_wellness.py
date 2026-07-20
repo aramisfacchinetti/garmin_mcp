@@ -5,6 +5,8 @@ import json
 import datetime
 from typing import Any, Dict, List, Optional, Union
 
+from garmin_mcp.metrics import recovery_time_hours
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -195,7 +197,16 @@ def register_tools(app):
             date: Date in YYYY-MM-DD format
         """
         try:
-            readiness_list = garmin_client.get_training_readiness(date)
+            readiness_data = garmin_client.get_training_readiness(date)
+            if isinstance(readiness_data, dict):
+                readiness_list = [readiness_data]
+            elif isinstance(readiness_data, list):
+                readiness_list = [
+                    entry for entry in readiness_data if isinstance(entry, dict)
+                ]
+            else:
+                readiness_list = []
+
             if not readiness_list:
                 return f"No training readiness data found for {date}"
 
@@ -217,7 +228,8 @@ def register_tools(app):
                     "sleep_factor_percent": r.get('sleepScoreFactorPercent'),
                     "sleep_factor_feedback": r.get('sleepScoreFactorFeedback'),
 
-                    "recovery_time_hours": round(r.get('recoveryTime', 0) / 60, 1) if r.get('recoveryTime') else None,
+                    "recovery_time_hours": recovery_time_hours(r.get("recoveryTime")),
+                    "recovery_time_change_phrase": r.get("recoveryTimeChangePhrase"),
                     "recovery_factor_percent": r.get('recoveryTimeFactorPercent'),
                     "recovery_factor_feedback": r.get('recoveryTimeFactorFeedback'),
 
@@ -882,10 +894,24 @@ def register_tools(app):
 
             # Curate the morning training readiness data
             curated = {
-                "date": date,
-                "readiness_score": readiness.get('readinessScore'),
-                "readiness_level": readiness.get('readinessLevel'),
-                "recovery_time_hours": round(readiness.get('recoveryTime', 0) / 60, 1) if readiness.get('recoveryTime') is not None else None,
+                "date": readiness.get("calendarDate") or date,
+                "timestamp": readiness.get("timestampLocal"),
+                "context": readiness.get("inputContext"),
+                "readiness_score": readiness.get("score", readiness.get("readinessScore")),
+                "readiness_level": readiness.get("level", readiness.get("readinessLevel")),
+                "feedback": readiness.get("feedbackShort"),
+                "recovery_time_hours": recovery_time_hours(
+                    readiness.get("recoveryTime")
+                ),
+                "recovery_time_change_phrase": readiness.get(
+                    "recoveryTimeChangePhrase"
+                ),
+                "recovery_factor_percent": readiness.get(
+                    "recoveryTimeFactorPercent"
+                ),
+                "recovery_factor_feedback": readiness.get(
+                    "recoveryTimeFactorFeedback"
+                ),
                 "hrv_status": readiness.get('hrvStatus'),
                 "sleep_quality": readiness.get('sleepQuality'),
                 "sleep_score": readiness.get('sleepScore'),

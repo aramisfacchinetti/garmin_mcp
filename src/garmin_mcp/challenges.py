@@ -557,7 +557,7 @@ def register_tools(app):
 
         Args:
             start: Starting index for pagination (default 1, must be >= 1;
-                garminconnect 0.3.2 rejects 0 for this endpoint)
+                the Garmin client rejects 0 for this endpoint)
             limit: Maximum number of challenges to return (default 20, max 100)
         """
         try:

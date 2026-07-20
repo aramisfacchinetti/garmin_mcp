@@ -30,6 +30,23 @@ def app_with_workouts(mock_garmin_client):
     workouts.configure(mock_garmin_client)
     app = FastMCP("Test Workouts")
     app = workouts.register_tools(app)
+
+    # Existing success/failure tests predate confirmation gates. Keep their
+    # intent focused on endpoint behavior while explicit preview tests exercise
+    # the default-safe path below.
+    mutation_names = {
+        "upload_workout", "upload_workouts", "delete_workout", "delete_workouts",
+        "schedule_workout", "schedule_workouts", "unschedule_workout",
+        "unschedule_workouts",
+    }
+    raw_call_tool = app.call_tool
+
+    async def call_tool(name, arguments, *args, **kwargs):
+        if name in mutation_names and "confirm" not in arguments:
+            arguments = {**arguments, "confirm": True}
+        return await raw_call_tool(name, arguments, *args, **kwargs)
+
+    app.call_tool = call_tool
     return app
 
 
@@ -72,6 +89,17 @@ def _distance_pace_step_with_nested_bounds():
             "targetValueTwo": 1.9607843,
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_upload_workout_requires_confirmation(app_with_workouts, mock_garmin_client):
+    result = await app_with_workouts.call_tool(
+        "upload_workout",
+        {"workout_data": _running_workout_with_steps([]), "confirm": False},
+    )
+
+    assert result[0][0].text.find('"status": "confirmation_required"') >= 0
+    mock_garmin_client.upload_workout.assert_not_called()
 
 
 @pytest.mark.asyncio

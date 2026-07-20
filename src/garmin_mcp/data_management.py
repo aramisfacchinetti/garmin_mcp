@@ -15,6 +15,19 @@ def configure(client):
     garmin_client = client
 
 
+def _confirmation_required(method: str, target: Dict[str, Any], warning: str) -> str:
+    return json.dumps(
+        {
+            "status": "confirmation_required",
+            "method": method,
+            "target": target,
+            "warning": warning,
+            "next_step": "Repeat with confirm=true to perform this mutation.",
+        },
+        indent=2,
+    )
+
+
 def register_tools(app):
     """Register all data management tools with the MCP server app"""
     
@@ -32,7 +45,8 @@ def register_tools(app):
         physique_rating: Optional[int] = None,
         metabolic_age: Optional[float] = None,
         visceral_fat_rating: Optional[int] = None,
-        bmi: Optional[float] = None
+        bmi: Optional[float] = None,
+        confirm: bool = False,
     ) -> str:
         """Add body composition data
         
@@ -52,6 +66,12 @@ def register_tools(app):
             bmi: Body Mass Index
         """
         try:
+            if not confirm:
+                return _confirmation_required(
+                    "add_body_composition",
+                    {"date": date, "weight": weight},
+                    "This adds a new body-composition record to Garmin Connect.",
+                )
             result = garmin_client.add_body_composition(
                 date,
                 weight=weight,
@@ -76,7 +96,8 @@ def register_tools(app):
         systolic: int,
         diastolic: int,
         pulse: int,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        confirm: bool = False,
     ) -> str:
         """Set blood pressure values
         
@@ -87,6 +108,12 @@ def register_tools(app):
             notes: Optional notes
         """
         try:
+            if not confirm:
+                return _confirmation_required(
+                    "set_blood_pressure",
+                    {"systolic": systolic, "diastolic": diastolic, "pulse": pulse},
+                    "This adds a new blood-pressure record to Garmin Connect.",
+                )
             result = garmin_client.set_blood_pressure(
                 systolic, diastolic, pulse, notes=notes
             )
@@ -98,7 +125,8 @@ def register_tools(app):
     async def add_hydration_data(
         value_in_ml: int,
         cdate: str,
-        timestamp: str
+        timestamp: str,
+        confirm: bool = False,
     ) -> str:
         """Add hydration data
         
@@ -108,6 +136,12 @@ def register_tools(app):
             timestamp: Timestamp in YYYY-MM-DDThh:mm:ss.sss format
         """
         try:
+            if not confirm:
+                return _confirmation_required(
+                    "add_hydration_data",
+                    {"value_in_ml": value_in_ml, "cdate": cdate, "timestamp": timestamp},
+                    "This adds a hydration log entry to Garmin Connect.",
+                )
             result = garmin_client.add_hydration_data(
                 value_in_ml=value_in_ml,
                 cdate=cdate,

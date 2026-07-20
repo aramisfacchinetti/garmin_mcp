@@ -6,6 +6,8 @@ import re
 import datetime
 from typing import Any, Dict, List, Optional, Union
 
+from garmin_mcp.mutation_safety import confirmation_required
+
 _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 
 
@@ -155,6 +157,21 @@ def _move_nested_target_fields(step: dict) -> None:
             value = target_type.pop(field)
             if value is not None and step.get(field) is None:
                 step[field] = value
+
+
+def _workout_preview(workout_data: dict) -> dict:
+    """Return a bounded target summary for a workout mutation preview."""
+    segments = workout_data.get("workoutSegments") or []
+    return {
+        "name": workout_data.get("workoutName"),
+        "sport": (workout_data.get("sportType") or {}).get("sportTypeKey"),
+        "segment_count": len(segments),
+        "step_count": sum(
+            len(segment.get("workoutSteps") or [])
+            for segment in segments
+            if isinstance(segment, dict)
+        ),
+    }
 
 
 def _fix_hr_zone_step(step: dict) -> None:
@@ -791,7 +808,7 @@ def register_tools(app):
             return f"Error downloading workout: {str(e)}"
 
     @app.tool()
-    async def upload_workout(workout_data: dict) -> str:
+    async def upload_workout(workout_data: dict, confirm: bool = False) -> str:
         """Upload a workout from JSON data
 
         Creates a new workout in Garmin Connect from structured workout data.
@@ -904,8 +921,15 @@ def register_tools(app):
 
         Args:
             workout_data: Dictionary containing workout structure (name, sport type, segments, etc.)
+            confirm: Must be true to create the workout in Garmin Connect.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "upload_workout",
+                    _workout_preview(workout_data),
+                    "This creates a new workout in your Garmin Connect library.",
+                )
             _normalize_workout_steps(workout_data)
             _validate_end_condition_steps(workout_data)
             _validate_target_type_steps(workout_data)
@@ -930,7 +954,9 @@ def register_tools(app):
             return f"Error uploading workout: {str(e)}"
 
     @app.tool()
-    async def upload_workouts(workouts: list[dict]) -> str:
+    async def upload_workouts(
+        workouts: list[dict], confirm: bool = False
+    ) -> str:
         """Upload multiple workouts from JSON data in a single call
 
         Creates multiple new workouts in Garmin Connect. Each item in the list
@@ -958,7 +984,18 @@ def register_tools(app):
         Args:
             workouts: List of workout dictionaries, each containing workout structure
                       (name, sport type, segments, etc.) — same format as upload_workout.
+            confirm: Must be true to create the workouts in Garmin Connect.
         """
+        if not confirm:
+            return confirmation_required(
+                "upload_workouts",
+                {
+                    "count": len(workouts),
+                    "workouts": [_workout_preview(item) for item in workouts[:20]],
+                    "truncated": len(workouts) > 20,
+                },
+                "This creates new workouts in your Garmin Connect library.",
+            )
         results = []
         for workout_data in workouts:
             try:
@@ -993,16 +1030,23 @@ def register_tools(app):
         }, indent=2)
 
     @app.tool()
-    async def delete_workout(workout_id: int) -> str:
+    async def delete_workout(workout_id: int, confirm: bool = False) -> str:
         """Delete a workout from Garmin Connect
 
         Permanently removes a workout from your Garmin Connect workout library.
 
         Args:
             workout_id: ID of the workout to delete (get IDs from get_workouts)
+            confirm: Must be true to permanently delete the workout.
         """
         try:
-            # Use the high-level garminconnect method. In garminconnect 0.3.2,
+            if not confirm:
+                return confirmation_required(
+                    "delete_workout",
+                    {"workout_id": workout_id},
+                    "This permanently deletes the selected workout from Garmin Connect.",
+                )
+            # Use the high-level garminconnect method. In current garminconnect,
             # client.delete(..., api=True) returns resp.json() (a dict), not a
             # Response, so checking response.status_code raises AttributeError.
             # Delegate to the library and rely on exceptions to signal failure.
@@ -1020,19 +1064,28 @@ def register_tools(app):
             }, indent=2)
 
     @app.tool()
-    async def delete_workouts(workout_ids: list[int]) -> str:
+    async def delete_workouts(
+        workout_ids: list[int], confirm: bool = False
+    ) -> str:
         """Delete multiple workouts from Garmin Connect in a single call
 
         Permanently removes multiple workouts from your Garmin Connect workout library.
 
         Args:
             workout_ids: List of workout IDs to delete (get IDs from get_workouts)
+            confirm: Must be true to permanently delete these workouts.
         """
+        if not confirm:
+            return confirmation_required(
+                "delete_workouts",
+                {"workout_ids": workout_ids[:100], "truncated": len(workout_ids) > 100},
+                "This permanently deletes the selected workouts from Garmin Connect.",
+            )
         results = []
         for workout_id in workout_ids:
             try:
                 # See note in delete_workout: high-level call avoids the
-                # garminconnect 0.3.2 dict-vs-Response trap.
+                # dict-vs-Response trap in the underlying client.
                 garmin_client.delete_workout(workout_id)
                 results.append({
                     "status": "success",
@@ -1151,7 +1204,9 @@ def register_tools(app):
             return f"Error retrieving training plan workouts: {str(e)}"
 
     @app.tool()
-    async def schedule_workout(workout_id: int, calendar_date: str) -> str:
+    async def schedule_workout(
+        workout_id: int, calendar_date: str, confirm: bool = False
+    ) -> str:
         """Schedule a workout to a specific calendar date
 
         This adds an existing workout from your Garmin workout library
@@ -1163,6 +1218,7 @@ def register_tools(app):
         Args:
             workout_id: ID of the workout to schedule (get IDs from get_workouts)
             calendar_date: Date to schedule the workout in YYYY-MM-DD format
+            confirm: Must be true to add the workout to the calendar.
         """
         try:
             _validate_date(calendar_date, "calendar_date")
@@ -1187,6 +1243,13 @@ def register_tools(app):
                     )
                 }, indent=2)
 
+            if not confirm:
+                return confirmation_required(
+                    "schedule_workout",
+                    {"workout_id": workout_id, "calendar_date": calendar_date},
+                    "This adds the workout to your Garmin Connect calendar.",
+                )
+
             url = f"workout-service/schedule/{workout_id}"
             response = garmin_client.client.post("connectapi", url, json={"date": calendar_date})
 
@@ -1209,7 +1272,9 @@ def register_tools(app):
             return f"Error scheduling workout: {str(e)}"
 
     @app.tool()
-    async def schedule_workouts(schedules: list[dict]) -> str:
+    async def schedule_workouts(
+        schedules: list[dict], confirm: bool = False
+    ) -> str:
         """Schedule multiple workouts to specific calendar dates
 
         This adds workouts to your Garmin Connect calendar in a single call.
@@ -1218,11 +1283,12 @@ def register_tools(app):
 
         Args:
             schedules: List of workout schedules, each with:
-                - calendar_date (str): Date to schedule the workout in YYYY-MM-DD format (required)
-                - workout_id (int): ID of an existing workout to schedule (required unless workout_data is provided)
-                - workout_data (dict): Inline workout JSON to upload first, then schedule (optional).
+        - calendar_date (str): Date to schedule the workout in YYYY-MM-DD format (required)
+        - workout_id (int): ID of an existing workout to schedule (required unless workout_data is provided)
+        - workout_data (dict): Inline workout JSON to upload first, then schedule (optional).
                   When provided, workout_id is not required. Uses the same structure and
                   target-value rules as upload_workout.
+            confirm: Must be true to upload or schedule any requested workouts.
 
         Examples:
             Schedule existing workouts by ID:
@@ -1233,6 +1299,24 @@ def register_tools(app):
             [{"calendar_date": "2024-01-15", "workout_data": {"workoutName": "Easy Run", ...}},
              {"workout_id": 789012, "calendar_date": "2024-01-17"}]
         """
+        if not confirm:
+            targets = []
+            for item in schedules[:100]:
+                targets.append({
+                    "workout_id": item.get("workout_id"),
+                    "calendar_date": item.get("calendar_date"),
+                    "inline_upload": bool(item.get("workout_data")),
+                    "workout": (
+                        _workout_preview(item["workout_data"])
+                        if isinstance(item.get("workout_data"), dict)
+                        else None
+                    ),
+                })
+            return confirmation_required(
+                "schedule_workouts",
+                {"count": len(schedules), "schedules": targets, "truncated": len(schedules) > 100},
+                "This may create workouts and adds them to your Garmin Connect calendar.",
+            )
         results = []
         for item in schedules:
             workout_id = item.get("workout_id")
@@ -1342,7 +1426,9 @@ def register_tools(app):
         }, indent=2)
 
     @app.tool()
-    async def unschedule_workout(scheduled_workout_id: int) -> str:
+    async def unschedule_workout(
+        scheduled_workout_id: int, confirm: bool = False
+    ) -> str:
         """Remove a scheduled workout from the Garmin Connect calendar
 
         Deletes a calendar entry without deleting the underlying workout
@@ -1358,8 +1444,15 @@ def register_tools(app):
 
         Args:
             scheduled_workout_id: Calendar-entry id from get_scheduled_workouts
+            confirm: Must be true to remove the calendar entry.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "unschedule_workout",
+                    {"scheduled_workout_id": scheduled_workout_id},
+                    "This removes the selected workout from your Garmin Connect calendar.",
+                )
             # Delegate to the high-level garminconnect method. Its client.delete
             # returns a dict ({}), not a Response, so we rely on exceptions to
             # signal failure rather than checking a status code — same pattern
@@ -1378,7 +1471,9 @@ def register_tools(app):
             }, indent=2)
 
     @app.tool()
-    async def unschedule_workouts(scheduled_workout_ids: list[int]) -> str:
+    async def unschedule_workouts(
+        scheduled_workout_ids: list[int], confirm: bool = False
+    ) -> str:
         """Remove multiple scheduled workouts from the Garmin Connect calendar
 
         Deletes multiple calendar entries in a single call. The underlying
@@ -1389,7 +1484,17 @@ def register_tools(app):
 
         Args:
             scheduled_workout_ids: List of calendar-entry ids from get_scheduled_workouts
+            confirm: Must be true to remove the calendar entries.
         """
+        if not confirm:
+            return confirmation_required(
+                "unschedule_workouts",
+                {
+                    "scheduled_workout_ids": scheduled_workout_ids[:100],
+                    "truncated": len(scheduled_workout_ids) > 100,
+                },
+                "This removes the selected workouts from your Garmin Connect calendar.",
+            )
         results = []
         for scheduled_workout_id in scheduled_workout_ids:
             try:

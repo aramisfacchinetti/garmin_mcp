@@ -27,7 +27,36 @@ def app_with_builders(mock_garmin_client):
     workout_builders.configure(mock_garmin_client)
     app = FastMCP("Test Workout Builders")
     app = workout_builders.register_tools(app)
+    mutation_names = {
+        "create_walk_run_workout", "create_run_workout", "create_z2_walk_workout",
+        "create_strength_workout", "schedule_week",
+    }
+    raw_call_tool = app.call_tool
+
+    async def call_tool(name, arguments, *args, **kwargs):
+        if name in mutation_names and "confirm" not in arguments:
+            arguments = {**arguments, "confirm": True}
+        return await raw_call_tool(name, arguments, *args, **kwargs)
+
+    app.call_tool = call_tool
     return app
+
+
+@pytest.mark.asyncio
+async def test_create_run_workout_requires_confirmation(app_with_builders, mock_garmin_client):
+    result = await app_with_builders.call_tool(
+        "create_run_workout",
+        {
+            "name": "Preview Run",
+            "run_seconds": 600,
+            "warmup_min": 5,
+            "cooldown_min": 5,
+            "confirm": False,
+        },
+    )
+
+    assert '"status": "confirmation_required"' in result[0][0].text
+    mock_garmin_client.upload_workout.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -36,7 +65,7 @@ async def test_schedule_week_uses_client_post_not_garth(
 ):
     """schedule_week must route through garmin_client.client.post
 
-    Regression: garminconnect 0.3.2 removed the `.garth` attribute. The old
+    Regression: the current garminconnect client removed the `.garth` attribute. The old
     code called `garmin_client.garth.post(...)` which raises AttributeError.
     This test pins the fix.
     """

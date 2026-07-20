@@ -43,6 +43,19 @@ def configure(client):
     garmin_client = client
 
 
+def _confirmation_required(method: str, target: Dict[str, Any], warning: str) -> str:
+    return json.dumps(
+        {
+            "status": "confirmation_required",
+            "method": method,
+            "target": target,
+            "warning": warning,
+            "next_step": "Repeat with confirm=true to perform this mutation.",
+        },
+        indent=2,
+    )
+
+
 def register_tools(app):
     """Register all gear management tools with the MCP server app"""
 
@@ -162,7 +175,9 @@ def register_tools(app):
             return f"Error retrieving gear: {str(e)}"
 
     @app.tool()
-    async def add_gear_to_activity(activity_id: int, gear_uuid: str) -> str:
+    async def add_gear_to_activity(
+        activity_id: int, gear_uuid: str, confirm: bool = False
+    ) -> str:
         """Associate gear with an activity
 
         Links a specific piece of gear (like shoes, bike, etc.) to an activity.
@@ -172,6 +187,12 @@ def register_tools(app):
             gear_uuid: UUID of the gear to add (get from get_gear)
         """
         try:
+            if not confirm:
+                return _confirmation_required(
+                    "add_gear_to_activity",
+                    {"activity_id": activity_id, "gear_uuid": gear_uuid},
+                    "This changes the gear association stored on the selected activity.",
+                )
             garmin_client.add_gear_to_activity(gear_uuid, activity_id)
 
             return json.dumps(
@@ -192,7 +213,9 @@ def register_tools(app):
             return f"Error adding gear to activity: {str(e)}"
 
     @app.tool()
-    async def remove_gear_from_activity(activity_id: int, gear_uuid: str) -> str:
+    async def remove_gear_from_activity(
+        activity_id: int, gear_uuid: str, confirm: bool = False
+    ) -> str:
         """Remove gear association from an activity
 
         Unlinks a specific piece of gear from an activity.
@@ -202,6 +225,12 @@ def register_tools(app):
             gear_uuid: UUID of the gear to remove
         """
         try:
+            if not confirm:
+                return _confirmation_required(
+                    "remove_gear_from_activity",
+                    {"activity_id": activity_id, "gear_uuid": gear_uuid},
+                    "This removes the gear association stored on the selected activity.",
+                )
             garmin_client.remove_gear_from_activity(gear_uuid, activity_id)
 
             return json.dumps(

@@ -113,7 +113,7 @@ async def test_upload_course_rejects_unknown_activity_type(
 
     result = await app_with_courses.call_tool(
         "upload_course",
-        {"gpx_path": str(gpx), "activity_type": "swimming"},
+        {"gpx_path": str(gpx), "activity_type": "swimming", "confirm": True},
     )
 
     assert "unknown activity_type" in _result_text(result)
@@ -146,7 +146,7 @@ async def test_upload_course_two_step_flow(app_with_courses, mock_garmin_client,
 
     result = await app_with_courses.call_tool(
         "upload_course",
-        {"gpx_path": str(gpx), "activity_type": "running"},
+        {"gpx_path": str(gpx), "activity_type": "running", "confirm": True},
     )
 
     data = json.loads(_result_text(result))
@@ -168,7 +168,9 @@ async def test_upload_course_two_step_flow(app_with_courses, mock_garmin_client,
 @pytest.mark.asyncio
 async def test_delete_course_success(app_with_courses, mock_garmin_client):
     """delete_course hits the right endpoint and reports success."""
-    result = await app_with_courses.call_tool("delete_course", {"course_id": 555})
+    result = await app_with_courses.call_tool(
+        "delete_course", {"course_id": 555, "confirm": True}
+    )
 
     data = json.loads(_result_text(result))
     assert data["status"] == "success"
@@ -183,7 +185,9 @@ async def test_delete_course_error_is_caught(app_with_courses, mock_garmin_clien
     """A client error is surfaced as a clean message, not a traceback."""
     mock_garmin_client.client.delete.side_effect = Exception("nope")
 
-    result = await app_with_courses.call_tool("delete_course", {"course_id": 555})
+    result = await app_with_courses.call_tool(
+        "delete_course", {"course_id": 555, "confirm": True}
+    )
 
     assert "Error deleting course" in _result_text(result)
 

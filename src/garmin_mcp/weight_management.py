@@ -15,6 +15,19 @@ def configure(client):
     garmin_client = client
 
 
+def _confirmation_required(method: str, target: Dict[str, Any], warning: str) -> str:
+    return json.dumps(
+        {
+            "status": "confirmation_required",
+            "method": method,
+            "target": target,
+            "warning": warning,
+            "next_step": "Repeat with confirm=true to perform this mutation.",
+        },
+        indent=2,
+    )
+
+
 def register_tools(app):
     """Register all weight management tools with the MCP server app"""
 
@@ -133,7 +146,9 @@ def register_tools(app):
             return f"Error retrieving daily weight measurements: {str(e)}"
 
     @app.tool()
-    async def delete_weigh_ins(date: str, delete_all: bool = True) -> str:
+    async def delete_weigh_ins(
+        date: str, delete_all: bool = True, confirm: bool = False
+    ) -> str:
         """Delete weight measurements for a specific date
 
         Args:
@@ -141,6 +156,12 @@ def register_tools(app):
             delete_all: Whether to delete all measurements for the day
         """
         try:
+            if not confirm:
+                return _confirmation_required(
+                    "delete_weigh_ins",
+                    {"date": date, "delete_all": delete_all},
+                    "This permanently deletes weight measurements for the selected date.",
+                )
             # API returns count of deleted entries
             deleted_count = garmin_client.delete_weigh_ins(date, delete_all=delete_all)
             return json.dumps({
@@ -153,7 +174,9 @@ def register_tools(app):
             return f"Error deleting weight measurements: {str(e)}"
 
     @app.tool()
-    async def add_weigh_in(weight: float, unit_key: str = "kg") -> str:
+    async def add_weigh_in(
+        weight: float, unit_key: str = "kg", confirm: bool = False
+    ) -> str:
         """Add a new weight measurement
 
         Args:
@@ -161,6 +184,12 @@ def register_tools(app):
             unit_key: Unit of weight ('kg' or 'lb')
         """
         try:
+            if not confirm:
+                return _confirmation_required(
+                    "add_weigh_in",
+                    {"weight": weight, "unit": unit_key},
+                    "This adds a new weight measurement to Garmin Connect.",
+                )
             result = garmin_client.add_weigh_in(weight=weight, unitKey=unit_key)
             # Return structured response
             return json.dumps({
@@ -177,7 +206,8 @@ def register_tools(app):
         weight: float,
         unit_key: str = "kg",
         date_timestamp: str = None,
-        gmt_timestamp: str = None
+        gmt_timestamp: str = None,
+        confirm: bool = False,
     ) -> str:
         """Add a new weight measurement with specific timestamps
 
@@ -193,6 +223,18 @@ def register_tools(app):
                 now = datetime.datetime.now()
                 date_timestamp = now.strftime('%Y-%m-%dT%H:%M:%S')
                 gmt_timestamp = now.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+            if not confirm:
+                return _confirmation_required(
+                    "add_weigh_in_with_timestamps",
+                    {
+                        "weight": weight,
+                        "unit": unit_key,
+                        "timestamp_local": date_timestamp,
+                        "timestamp_gmt": gmt_timestamp,
+                    },
+                    "This adds a new timestamped weight measurement to Garmin Connect.",
+                )
 
             result = garmin_client.add_weigh_in_with_timestamps(
                 weight=weight,

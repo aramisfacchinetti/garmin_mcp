@@ -7,6 +7,8 @@ to the existing upload_workout / schedule_workout endpoints.
 import json
 from typing import Any, Dict, List, Optional
 
+from garmin_mcp.mutation_safety import confirmation_required
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -349,6 +351,7 @@ def register_tools(app):
         warmup_min: int,
         cooldown_min: int,
         hr_zone: str = "Z3",
+        confirm: bool = False,
     ) -> str:
         """Create a walk/run interval workout and upload it to Garmin Connect.
 
@@ -362,8 +365,23 @@ def register_tools(app):
             warmup_min: Warmup duration in minutes
             cooldown_min: Cooldown duration in minutes
             hr_zone: Target heart-rate zone (Z1-Z5, default Z3)
+            confirm: Must be true to upload the generated workout.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "create_walk_run_workout",
+                    {
+                        "name": name,
+                        "run_seconds": run_seconds,
+                        "walk_seconds": walk_seconds,
+                        "repeats": repeats,
+                        "warmup_min": warmup_min,
+                        "cooldown_min": cooldown_min,
+                        "hr_zone": hr_zone,
+                    },
+                    "This creates a new walk/run workout in Garmin Connect.",
+                )
             workout_json = build_walk_run_json(
                 name=name,
                 run_seconds=run_seconds,
@@ -397,6 +415,7 @@ def register_tools(app):
         hr_zone: str = "Z3",
         hr_min: Optional[int] = None,
         hr_max: Optional[int] = None,
+        confirm: bool = False,
     ) -> str:
         """Create a continuous run workout and upload it to Garmin Connect.
 
@@ -417,8 +436,21 @@ def register_tools(app):
             hr_zone: Target heart-rate zone (Z1-Z5, default Z3). Ignored if hr_min/hr_max are given.
             hr_min: Optional custom target heart rate range, minimum bpm (must be given with hr_max)
             hr_max: Optional custom target heart rate range, maximum bpm (must be given with hr_min)
+            confirm: Must be true to upload the generated workout.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "create_run_workout",
+                    {
+                        "name": name,
+                        "run_seconds": run_seconds,
+                        "warmup_min": warmup_min,
+                        "cooldown_min": cooldown_min,
+                        "hr_zone": hr_zone,
+                    },
+                    "This creates a new run workout in Garmin Connect.",
+                )
             workout_json = build_run_json(
                 name=name,
                 run_seconds=run_seconds,
@@ -449,6 +481,7 @@ def register_tools(app):
         duration_min: int,
         hr_min: int,
         hr_max: int,
+        confirm: bool = False,
     ) -> str:
         """Create a steady Z2 walking workout and upload it to Garmin Connect.
 
@@ -457,8 +490,20 @@ def register_tools(app):
             duration_min: Main walking block duration in minutes
             hr_min: Minimum heart rate in bpm (used for description; target is Z2)
             hr_max: Maximum heart rate in bpm (used for description; target is Z2)
+            confirm: Must be true to upload the generated workout.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "create_z2_walk_workout",
+                    {
+                        "name": name,
+                        "duration_min": duration_min,
+                        "hr_min": hr_min,
+                        "hr_max": hr_max,
+                    },
+                    "This creates a new Z2 walking workout in Garmin Connect.",
+                )
             workout_json = build_z2_walk_json(
                 name=name,
                 duration_min=duration_min,
@@ -484,6 +529,7 @@ def register_tools(app):
     async def create_strength_workout(
         name: str,
         exercises: List[Dict[str, Any]],
+        confirm: bool = False,
     ) -> str:
         """Create a strength workout and upload it to Garmin Connect.
 
@@ -500,8 +546,15 @@ def register_tools(app):
                 anything else, including "UNASSIGNED" and "OTHER", is rejected with
                 400 Invalid category. Full list:
                 https://connect.garmin.com/web-data/exercises/Exercises.json
+            confirm: Must be true to upload the generated workout.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "create_strength_workout",
+                    {"name": name, "exercise_count": len(exercises)},
+                    "This creates a new strength workout in Garmin Connect.",
+                )
             workout_json = build_strength_json(name=name, exercises=exercises)
             result = garmin_client.upload_workout(workout_json)
 
@@ -519,7 +572,9 @@ def register_tools(app):
             return f"Error creating strength workout: {str(e)}"
 
     @app.tool()
-    async def schedule_week(week: List[Dict[str, Any]]) -> str:
+    async def schedule_week(
+        week: List[Dict[str, Any]], confirm: bool = False
+    ) -> str:
         """Schedule a list of workouts for the week in a single call.
 
         Idempotent: if a workout is already scheduled for that date, it is
@@ -528,6 +583,7 @@ def register_tools(app):
 
         Args:
             week: List of dicts with keys: date (YYYY-MM-DD), workout_id (int)
+            confirm: Must be true to schedule any unscheduled workout.
         """
         # Imported here (not at module top) to avoid any import-time ordering
         # surprises between sibling modules. Both modules share the same
@@ -535,6 +591,12 @@ def register_tools(app):
         from garmin_mcp.workouts import _is_already_scheduled
 
         try:
+            if not confirm:
+                return confirmation_required(
+                    "schedule_week",
+                    {"count": len(week), "week": week[:100], "truncated": len(week) > 100},
+                    "This adds unscheduled workouts to your Garmin Connect calendar.",
+                )
             results = []
             for item in week:
                 calendar_date = item["date"]
@@ -549,7 +611,8 @@ def register_tools(app):
                     })
                     continue
 
-                # garminconnect 0.3.2 dropped the .garth attribute; use .client.
+                # The current garminconnect client exposes the transport via
+                # .client; use it instead of the removed .garth attribute.
                 url = f"workout-service/schedule/{workout_id}"
                 response = garmin_client.client.post(
                     "connectapi", url, json={"date": calendar_date}

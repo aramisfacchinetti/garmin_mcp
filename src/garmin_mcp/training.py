@@ -7,6 +7,8 @@ import datetime
 import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from garmin_mcp.metrics import recovery_time_hours
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -410,11 +412,7 @@ def register_tools(app):
                 "anaerobic_effect": summary.get("anaerobicTrainingEffect"),
                 "training_effect_label": summary.get("trainingEffectLabel"),
                 # Recovery metrics
-                "recovery_time_hours": (
-                    round(summary.get("recoveryTime", 0) / 60, 1)
-                    if summary.get("recoveryTime")
-                    else None
-                ),
+                "recovery_time_hours": recovery_time_hours(summary.get("recoveryTime")),
                 # Training load
                 "training_load": summary.get("activityTrainingLoad"),
                 # Additional metrics that may be available

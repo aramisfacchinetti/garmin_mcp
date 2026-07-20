@@ -27,6 +27,8 @@ from garmin_mcp import activity_analysis
 from garmin_mcp import activity_management
 from garmin_mcp import challenges
 from garmin_mcp import courses
+from garmin_mcp import consumer_parity
+from garmin_mcp import consumer_writes
 from garmin_mcp import data_management
 from garmin_mcp import devices
 from garmin_mcp import gear_management
@@ -58,6 +60,8 @@ MODULES = [
     workout_builders,
     courses,
     activity_analysis,
+    consumer_parity,
+    consumer_writes,
 ]
 
 MUTATING_TOOLS = {
@@ -67,24 +71,31 @@ MUTATING_TOOLS = {
     "add_weigh_in",
     "add_weigh_in_with_timestamps",
     "create_custom_food",
+    "create_manual_activity_from_json",
     "create_manual_activity",
     "create_run_workout",
     "create_strength_workout",
     "create_walk_run_workout",
     "create_z2_walk_workout",
     "delete_course",
+    "delete_activity",
+    "delete_blood_pressure",
     "delete_custom_food",
     "delete_food_log",
+    "delete_weigh_in",
     "delete_weigh_ins",
     "delete_workout",
     "delete_workouts",
     "log_custom_food",
     "log_food",
+    "import_activity",
     "remove_gear_from_activity",
     "request_reload",
     "schedule_week",
     "schedule_workout",
     "schedule_workouts",
+    "set_activity_exercise_sets",
+    "set_gear_default",
     "set_activity_description",
     "set_activity_event_type",
     "set_activity_feel",
@@ -97,6 +108,7 @@ MUTATING_TOOLS = {
     "unschedule_workouts",
     "update_custom_food",
     "upload_course",
+    "upload_activity",
     "upload_workout",
     "upload_workouts",
     "upsert_and_log",
@@ -104,7 +116,10 @@ MUTATING_TOOLS = {
 
 DESTRUCTIVE_TOOLS_REQUIRING_SWEEP_CREATED_IDS = {
     "delete_course",
+    "delete_activity",
+    "delete_blood_pressure",
     "delete_food_log",
+    "delete_weigh_in",
     "delete_workout",
     "delete_workouts",
     "delete_weigh_ins",
@@ -116,6 +131,7 @@ CREATION_TOOLS_THAT_PRODUCE_CLEANUP_TARGETS = {
     "create_walk_run_workout",
     "create_z2_walk_workout",
     "upload_course",
+    "upload_activity",
     "upload_workout",
     "upload_workouts",
 }
@@ -141,6 +157,9 @@ class SweepContext:
     activity_id: int | None = None
     activity_name: str | None = None
     device_id: str | None = None
+    user_profile_number: str | None = None
+    training_plan_id: int | str | None = None
+    adaptive_plan_id: int | str | None = None
     workout_id: int | str | None = None
     course_id: int | None = None
     gear_uuid: str | None = None
@@ -360,6 +379,7 @@ def collect_context(client: Garmin, args: argparse.Namespace) -> SweepContext:
     try:
         device = client.get_device_last_used()
         if isinstance(device, dict):
+            ctx.user_profile_number = str(device.get("userProfileNumber") or "") or None
             ctx.device_id = str(
                 device.get("userDeviceId") or device.get("deviceId") or ""
             ) or None
@@ -410,6 +430,21 @@ def collect_context(client: Garmin, args: argparse.Namespace) -> SweepContext:
                 ctx.gear_uuid = first_gear.get("uuid")
     except Exception as exc:
         ctx.notes.append(f"gear context unavailable: {exc}")
+
+    try:
+        plans = client.get_training_plans()
+        plan_items = plans.get("trainingPlanList", []) if isinstance(plans, dict) else []
+        for plan in plan_items:
+            if not isinstance(plan, dict):
+                continue
+            plan_id = plan.get("trainingPlanId")
+            if ctx.training_plan_id is None:
+                ctx.training_plan_id = plan_id
+            category = str(plan.get("trainingPlanCategory") or "").upper()
+            if ctx.adaptive_plan_id is None and "ADAPTIVE" in category:
+                ctx.adaptive_plan_id = plan_id
+    except Exception as exc:
+        ctx.notes.append(f"training-plan context unavailable: {exc}")
 
     if args.include_mutations:
         fd, path = tempfile.mkstemp(prefix="garmin-mcp-live-sweep-", suffix=".gpx")
@@ -472,24 +507,45 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
     if name in {"unschedule_workout", "unschedule_workouts"}:
         return None, "missing dependency: scheduled workout cleanup is not sweep-owned"
 
+    if name in {
+        "create_manual_activity_from_json",
+        "delete_activity",
+        "delete_blood_pressure",
+        "delete_weigh_in",
+        "import_activity",
+        "set_activity_exercise_sets",
+        "set_gear_default",
+        "upload_activity",
+    }:
+        return None, "missing dependency: live cleanup is not sweep-owned"
+
+    if name in {"get_golf_scorecard", "get_golf_shot_data"}:
+        return None, "missing dependency: scorecard_id"
+
+    if name == "get_scheduled_workout_by_id":
+        return None, "missing dependency: scheduled_workout_id"
+
     explicit: dict[str, dict[str, Any]] = {
-        "add_body_composition": {"date": ctx.today, "weight": 70.0},
+        "add_body_composition": {"date": ctx.today, "weight": 70.0, "confirm": True},
         "add_hydration_data": {
             "value_in_ml": 0,
             "cdate": ctx.today,
             "timestamp": f"{ctx.today}T12:00:00.000",
+            "confirm": True,
         },
-        "add_weigh_in": {"weight": 70.0, "unit_key": "kg"},
+        "add_weigh_in": {"weight": 70.0, "unit_key": "kg", "confirm": True},
         "add_weigh_in_with_timestamps": {
             "weight": 70.0,
             "unit_key": "kg",
             "date_timestamp": f"{ctx.today}T12:00:00.000",
             "gmt_timestamp": f"{ctx.today}T10:00:00.000",
+            "confirm": True,
         },
         "count_activities": {},
         "create_strength_workout": {
             "name": "garmin mcp live sweep strength",
             "exercises": [{"name": "Push Up", "sets": 1, "reps": 1, "rest_seconds": 5}],
+            "confirm": True,
         },
         "create_walk_run_workout": {
             "name": "garmin mcp live sweep walk run",
@@ -498,6 +554,7 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
             "repeats": 1,
             "warmup_min": 1,
             "cooldown_min": 1,
+            "confirm": True,
         },
         "create_run_workout": {
             "name": "garmin mcp live sweep run",
@@ -505,12 +562,14 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
             "warmup_min": 1,
             "cooldown_min": 1,
             "hr_zone": "Z2",
+            "confirm": True,
         },
         "create_z2_walk_workout": {
             "name": "garmin mcp live sweep z2 walk",
             "duration_min": 5,
             "hr_min": 110,
             "hr_max": 130,
+            "confirm": True,
         },
         "get_activities": {"start": 0, "limit": 5},
         "get_activities_by_date": {**date_range, "activity_type": ""},
@@ -542,6 +601,7 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_floors": one_day,
         "get_full_name": {},
         "get_gear": {"include_stats": True},
+        "get_golf_summary": {},
         "get_goals": {"goal_type": "active"},
         "get_heart_rates": one_day,
         "get_heart_rates_summary": one_day,
@@ -550,10 +610,13 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_hrv_trend": date_range,
         "get_hydration_data": one_day,
         "get_lactate_threshold": {},
+        "get_last_activity": {},
         "get_lifestyle_logging_data": one_day,
         "get_menstrual_calendar_data": date_range,
         "get_menstrual_data_for_date": one_day,
         "get_morning_training_readiness": one_day,
+        "get_intensity_minutes_data": one_day,
+        "get_max_metrics": one_day,
         "get_nutrition_daily_food_log": one_day,
         "get_nutrition_daily_meals": one_day,
         "get_nutrition_daily_settings": one_day,
@@ -577,7 +640,9 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_stress_data": one_day,
         "get_stress_summary": one_day,
         "get_training_load_trend": date_range,
+        "get_training_load_balance": {"date": ctx.today},
         "get_training_plan_workouts": {"calendar_date": ctx.today},
+        "get_training_plans": {},
         "get_training_readiness": one_day,
         "get_training_status": one_day,
         "get_unit_system": {},
@@ -598,42 +663,92 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
             "carbs": 0,
             "protein": 0,
             "fat": 0,
+            "confirm": True,
         },
         "request_reload": one_day,
-        "set_blood_pressure": {"systolic": 120, "diastolic": 80, "pulse": 60},
-        "upload_workout": {"workout_data": minimal_workout("garmin mcp live sweep")},
-        "upload_workouts": {"workouts": [minimal_workout("garmin mcp live sweep batch")]},
+        "set_blood_pressure": {"systolic": 120, "diastolic": 80, "pulse": 60, "confirm": True},
+        "upload_workout": {
+            "workout_data": minimal_workout("garmin mcp live sweep"),
+            "confirm": True,
+        },
+        "upload_workouts": {
+            "workouts": [minimal_workout("garmin mcp live sweep batch")],
+            "confirm": True,
+        },
     }
 
     if name == "delete_course":
         if not ctx.created_course_ids:
             return None, "missing dependency: sweep-created course_id"
-        return {"course_id": ctx.created_course_ids.pop(0)}, None
+        return {"course_id": ctx.created_course_ids.pop(0), "confirm": True}, None
 
     if name == "delete_food_log":
         if not ctx.created_food_log_ids:
-            return {"log_id": -1}, None
-        return {"log_id": ctx.created_food_log_ids.pop(0)}, None
+            return {"log_id": -1, "meal_date": ctx.today, "confirm": True}, None
+        return {"log_id": ctx.created_food_log_ids.pop(0), "meal_date": ctx.today, "confirm": True}, None
 
     if name == "delete_weigh_ins":
         if not ctx.created_weigh_in_dates:
             return None, "missing dependency: sweep-created weigh-in date"
-        return {"date": ctx.created_weigh_in_dates.pop(0), "delete_all": True}, None
+        return {"date": ctx.created_weigh_in_dates.pop(0), "delete_all": True, "confirm": True}, None
 
     if name == "delete_workout":
         if not ctx.created_workout_ids:
             return None, "missing dependency: sweep-created workout_id"
-        return {"workout_id": ctx.created_workout_ids.pop(0)}, None
+        return {"workout_id": ctx.created_workout_ids.pop(0), "confirm": True}, None
 
     if name == "delete_workouts":
         if not ctx.created_workout_ids:
             return None, "missing dependency: sweep-created workout_ids"
         workout_ids = list(ctx.created_workout_ids)
         ctx.created_workout_ids.clear()
-        return {"workout_ids": workout_ids}, None
+        return {"workout_ids": workout_ids, "confirm": True}, None
+
+    if name == "get_gear_defaults":
+        missing = dependency("user_profile_number", ctx.user_profile_number)
+        if missing:
+            return missing
+        return {"user_profile_number": ctx.user_profile_number}, None
 
     if name in explicit:
         return explicit[name], None
+
+    if name == "get_activity_details":
+        missing = dependency("activity_id", ctx.activity_id)
+        if missing:
+            return missing
+        return {
+            "activity_id": ctx.activity_id,
+            "max_chart": 100,
+            "max_polyline": 100,
+        }, None
+
+    if name == "get_running_tolerance":
+        return {
+            "start_date": ctx.start_date,
+            "end_date": ctx.end_date,
+            "aggregation": "weekly",
+        }, None
+
+    if name in {"get_available_badges", "get_in_progress_badges"}:
+        return {}, None
+
+    if name in {"get_gear_activities", "get_gear_stats"}:
+        missing = dependency("gear_uuid", ctx.gear_uuid)
+        if missing:
+            return missing
+        return {"gear_uuid": ctx.gear_uuid}, None
+
+    if name in {"get_training_plan_by_id", "get_adaptive_training_plan_by_id"}:
+        plan_id = (
+            ctx.adaptive_plan_id
+            if name == "get_adaptive_training_plan_by_id"
+            else ctx.training_plan_id
+        )
+        missing = dependency("training_plan_id", plan_id)
+        if missing:
+            return missing
+        return {"plan_id": plan_id}, None
 
     if name in {
         "get_activity",
@@ -667,7 +782,7 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
     if name in {"add_gear_to_activity", "remove_gear_from_activity"}:
         if ctx.activity_id is None:
             return None, "missing dependency: activity_id"
-        return {"activity_id": ctx.activity_id, "gear_uuid": MISSING_GEAR_UUID}, None
+        return {"activity_id": ctx.activity_id, "gear_uuid": MISSING_GEAR_UUID, "confirm": True}, None
 
     if name in {"get_device_settings", "get_device_solar_data"}:
         missing = dependency("device_id", ctx.device_id)
@@ -689,13 +804,20 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         missing = dependency("workout_id", schedule_workout_id)
         if missing:
             return missing
-        return {"workout_id": schedule_workout_id, "calendar_date": ctx.future_date}, None
+        return {
+            "workout_id": schedule_workout_id,
+            "calendar_date": ctx.future_date,
+            "confirm": True,
+        }, None
 
     if name == "schedule_week":
         missing = dependency("workout_id", schedule_workout_id)
         if missing:
             return missing
-        return {"week": [{"date": ctx.future_date, "workout_id": schedule_workout_id}]}, None
+        return {
+            "week": [{"date": ctx.future_date, "workout_id": schedule_workout_id}],
+            "confirm": True,
+        }, None
 
     if name == "schedule_workouts":
         missing = dependency("workout_id", schedule_workout_id)
@@ -704,14 +826,19 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         return {
             "schedules": [
                 {"workout_id": schedule_workout_id, "calendar_date": ctx.future_date}
-            ]
+            ],
+            "confirm": True,
         }, None
 
     if name == "upload_course":
         missing = dependency("gpx_path", ctx.generated_gpx_path)
         if missing:
             return missing
-        return {"gpx_path": ctx.generated_gpx_path, "course_name": "garmin mcp live sweep"}, None
+        return {
+            "gpx_path": ctx.generated_gpx_path,
+            "course_name": "garmin mcp live sweep",
+            "confirm": True,
+        }, None
 
     if name == "download_activity_file":
         missing = dependency("activity_id", ctx.activity_id)
@@ -729,6 +856,7 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
             "meal_time": "12:00:00",
             "food_id": ctx.food_id,
             "serving_id": ctx.serving_id,
+            "confirm": True,
         }, None
 
     if name == "update_custom_food":
@@ -741,6 +869,7 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
             "serving_id": ctx.serving_id,
             "food_name": ctx.custom_food_name,
             "calories": 1,
+            "confirm": True,
         }, None
 
     return None, "no argument recipe"

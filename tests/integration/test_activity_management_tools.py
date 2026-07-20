@@ -178,7 +178,7 @@ async def test_set_activity_name_tool(app_with_activity_management, mock_garmin_
 
     result = await app_with_activity_management.call_tool(
         "set_activity_name",
-        {"activity_id": activity_id, "activity_name": "Morning Run - Easy"},
+        {"activity_id": activity_id, "activity_name": "Morning Run - Easy", "confirm": True},
     )
 
     assert result is not None
@@ -190,6 +190,19 @@ async def test_set_activity_name_tool(app_with_activity_management, mock_garmin_
     assert data["success"] is True
     assert data["activity_id"] == activity_id
     assert data["activity_name"] == "Morning Run - Easy"
+
+
+@pytest.mark.asyncio
+async def test_activity_updates_are_preview_only_by_default(
+    app_with_activity_management, mock_garmin_client
+):
+    result = await app_with_activity_management.call_tool(
+        "set_activity_name",
+        {"activity_id": 12345678901, "activity_name": "Preview only"},
+    )
+
+    assert json.loads(result[0][0].text)["status"] == "confirmation_required"
+    mock_garmin_client.set_activity_name.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -217,7 +230,7 @@ async def test_set_activity_type_tool(app_with_activity_management, mock_garmin_
 
     result = await app_with_activity_management.call_tool(
         "set_activity_type",
-        {"activity_id": 12345678901, "type_key": "hiking"},
+        {"activity_id": 12345678901, "type_key": "hiking", "confirm": True},
     )
 
     mock_garmin_client.set_activity_type.assert_called_once_with(
@@ -254,7 +267,7 @@ async def test_set_activity_description_tool(
 
     result = await app_with_activity_management.call_tool(
         "set_activity_description",
-        {"activity_id": 12345678901, "description": "Felt strong. New shoes."},
+        {"activity_id": 12345678901, "description": "Felt strong. New shoes.", "confirm": True},
     )
 
     mock_garmin_client.client.put.assert_called_once_with(
@@ -282,7 +295,7 @@ async def test_set_activity_event_type_tool(
 
     result = await app_with_activity_management.call_tool(
         "set_activity_event_type",
-        {"activity_id": 12345678901, "event_type": "race"},
+        {"activity_id": 12345678901, "event_type": "race", "confirm": True},
     )
 
     mock_garmin_client.client.put.assert_called_once_with(
@@ -326,7 +339,7 @@ async def test_set_perceived_effort_tool(
 
     result = await app_with_activity_management.call_tool(
         "set_perceived_effort",
-        {"activity_id": 12345678901, "rpe": 7},
+        {"activity_id": 12345678901, "rpe": 7, "confirm": True},
     )
 
     # Only the changed field is sent; Garmin merges it (7 -> 70)
@@ -365,7 +378,7 @@ async def test_set_activity_feel_tool(app_with_activity_management, mock_garmin_
 
     result = await app_with_activity_management.call_tool(
         "set_activity_feel",
-        {"activity_id": 12345678901, "feel": 75},
+        {"activity_id": 12345678901, "feel": 75, "confirm": True},
     )
 
     mock_garmin_client.client.put.assert_called_once_with(
@@ -871,7 +884,7 @@ async def test_set_activity_name_exception(app_with_activity_management, mock_ga
 
     result = await app_with_activity_management.call_tool(
         "set_activity_name",
-        {"activity_id": 12345678901, "activity_name": "Morning Run"},
+        {"activity_id": 12345678901, "activity_name": "Morning Run", "confirm": True},
     )
 
     assert result is not None
@@ -1008,6 +1021,7 @@ async def test_create_manual_activity_success(app_with_activity_management, mock
             "type_key": "yoga",
             "date": "2024-03-01",
             "duration_minutes": 60,
+            "confirm": True,
         },
     )
 
@@ -1041,6 +1055,7 @@ async def test_create_manual_activity_custom_fields(app_with_activity_management
             "activity_name": "Morning Weights",
             "distance_km": 0.0,
             "time_zone": "Europe/Lisbon",
+            "confirm": True,
         },
     )
 
@@ -1063,7 +1078,7 @@ async def test_create_manual_activity_default_name_from_type_key(
 
     await app_with_activity_management.call_tool(
         "create_manual_activity",
-        {"type_key": "indoor_cycling", "date": "2024-04-01", "duration_minutes": 30},
+        {"type_key": "indoor_cycling", "date": "2024-04-01", "duration_minutes": 30, "confirm": True},
     )
 
     call_kwargs = mock_garmin_client.create_manual_activity.call_args[1]
@@ -1103,7 +1118,7 @@ async def test_create_manual_activity_exception(app_with_activity_management, mo
 
     result = await app_with_activity_management.call_tool(
         "create_manual_activity",
-        {"type_key": "yoga", "date": "2024-03-01", "duration_minutes": 60},
+        {"type_key": "yoga", "date": "2024-03-01", "duration_minutes": 60, "confirm": True},
     )
     assert "Error" in result[0][0].text
     assert "Garmin API error" in result[0][0].text

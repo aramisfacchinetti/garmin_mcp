@@ -25,23 +25,25 @@ Garmin's API is accessed via the awesome [python-garminconnect](https://github.c
 
 ### Tool Coverage
 
-This MCP server implements **110+ tools** covering ~90% of the [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) library (v0.3.2):
+This MCP server registers **160 tools** covering the supported consumer-client surface of [python-garminconnect](https://github.com/cyberjunky/python-garminconnect), including bounded read-only and confirmation-gated parity wrappers for the pinned v0.3.6 client:
 
-- ✅ Activity Management (20 tools) - includes write tools for type, description, event type, perceived effort, and feel
-- ✅ Health & Wellness (31 tools) - includes custom lightweight summary tools
-- ✅ Training & Performance (13 tools) - includes CTL/ATL/TSB, HRV, VO2 max, and respiration trends
-- ✅ Workouts (8 tools)
-- ✅ Devices (7 tools)
-- ✅ Gear Management (5 tools)
+- ✅ Activity Management (21 tools) - includes write tools for type, description, event type, perceived effort, and feel
+- ✅ Health & Wellness (29 tools) - includes custom lightweight summary tools
+- ✅ Training & Performance (14 tools) - includes CTL/ATL/TSB, HRV, VO2 max, and respiration trends
+- ✅ Workouts (13 tools)
+- ✅ Devices (6 tools)
+- ✅ Gear Management (3 tools)
 - ✅ Weight Tracking (5 tools)
-- ✅ Challenges & Badges (10 tools)
-- ✅ Nutrition (8 tools) - food logs, meals, custom foods, and food logging
+- ✅ Challenges & Badges (9 tools)
+- ✅ Nutrition (12 tools) - food logs, meals, custom foods, and food logging
 - ✅ Women's Health (3 tools)
-- ✅ User Profile (3 tools)
-- ✅ High-Level Workout Builders (4 tools) - create and schedule workouts without writing JSON
+- ✅ User Profile (4 tools)
+- ✅ High-Level Workout Builders (5 tools) - create and schedule workouts without writing JSON
 - ✅ Courses (3 tools) - list / upload GPX as course / delete course
-- ✅ Activity Analysis (2 tools) - FIT file parsing, Power Duration Curve; requires power meter and/or Di2
+- ✅ Activity Analysis (4 tools) - FIT file parsing, Power Duration Curve; requires power meter and/or Di2
 - ✅ Activity File Downloads (2 tools) - download activity files in FIT, GPX, TCX, or CSV format
+- ✅ Consumer API Parity Reads (18 tools) - bounded activity details, metrics, badges, gear, plans, scheduled workouts, and golf data
+- ✅ Consumer API Parity Writes (8 tools) - confirmation-gated activity import/upload, manual JSON activity creation, exercise-set replacement, gear-default changes, and exact-record deletion
 
 > **Note:** Activity Analysis tools require a compatible power meter (e.g., Garmin Rally, Favero Assioma, PowerTap P1) and/or Shimano Di2 / SRAM eTap electronic shifting. The `fitparse` dependency is installed automatically.
 
@@ -60,25 +62,37 @@ Two tools let you download a raw activity file to disk:
 
 **First-run behavior:** if no directory is configured, `download_activity_file` returns `status: "needs_setup"`. The assistant will ask where you want to save files (suggesting the current directory as default), call `set_fit_download_dir` to persist your choice, and then retry the download automatically.
 
-### Intentionally Skipped Endpoints
+### Deliberate API-Surface Boundaries
 
 Some endpoints are not implemented due to performance or complexity considerations:
 
 **High Data Volume:**
-- `get_activity_details()` - Returns large GPS tracks and chart data (50KB-500KB). Use `get_activity()` for summaries instead.
+- Activity details are exposed through `get_activity_details()` with explicit chart and polyline bounds. Use `get_activity()` for lightweight summaries.
 
 **Specialized Workout Formats:**
-- `upload_running_workout()`, `upload_cycling_workout()`, `upload_swimming_workout()` - Sport-specific workout uploads. Use `upload_workout()` for general workouts.
+- Typed `upload_running_workout()`, `upload_cycling_workout()`, `upload_hiking_workout()`, `upload_swimming_workout()`, and `upload_walking_workout()` are not separate MCP tools. Use `upload_workout()` for the same endpoint; typed client-side Pydantic validation is not exposed.
 
 **Maintenance & Destructive Operations:**
-- `delete_activity()`, `delete_blood_pressure()` - Destructive operations require careful consideration.
-- Internal/Auth methods: `login()`, `resume_login()`, `connectapi()`, `download()` - Handled automatically by the library.
+- `delete_activity()`, `delete_blood_pressure()`, `delete_weigh_in()`, and the existing `delete_weigh_ins()` - Deletion is confirmation-gated with an explicit target summary; exact-record wrappers also perform a postcondition check.
+- Course, workout, workout-builder, and nutrition mutations likewise preview their target and require `confirm=true`; the live sweep only invokes them with explicit confirmation and sweep-owned cleanup targets.
+- Internal/Auth methods: `login()`, `resume_login()`, `connectapi()`, `connectwebproxy()`, `download()`, and raw GraphQL transport are handled automatically by the library or bounded wrappers.
+
+All consumer-parity write tools are preview-only by default. Repeat the same call with `confirm=true` after reviewing the returned target summary. Activity file writes accept FIT, GPX, and TCX paths; exercise-set writes replace the full `exerciseSets` payload; successful exercise-set and gear-default writes include a postcondition check when the account exposes the corresponding read endpoint.
+
+### Official Garmin Developer Program boundary
+
+This project targets the personal Garmin Connect consumer session exposed by
+`python-garminconnect`. Garmin's official Connect Developer Program is a
+separate partner/cloud-to-cloud surface with its own OAuth consent, project
+approval, scopes, feeds, and webhook lifecycle. It is intentionally not
+included in this consumer-client parity claim; implementing it would require a
+separate adapter and authorization/configuration track.
 
 If you need any of these endpoints, please [open an issue](https://github.com/Taxuspt/garmin_mcp/issues).
 
 ## Tool Filtering
 
-This server registers 110+ tools by default, which can be a lot of context for
+This server registers 160 tools by default, which can be a lot of context for
 an LLM to carry in every session. You can expose only the tools you need with
 two optional environment variables:
 

@@ -55,6 +55,7 @@ class FrozenDate(date):
 
 def test_live_sweep_has_argument_recipe_for_every_registered_tool(monkeypatch):
     monkeypatch.setattr(sweep, "date", FrozenDate)
+    assert len(registered_tool_names()) == 160
     missing = {}
     for tool_name in registered_tool_names():
         _args, skip_reason = sweep.arguments_for(tool_name, complete_context())
@@ -63,7 +64,10 @@ def test_live_sweep_has_argument_recipe_for_every_registered_tool(monkeypatch):
 
     assert missing == {
         "create_custom_food": "missing dependency: custom food cleanup unavailable",
+        "create_manual_activity_from_json": "missing dependency: live cleanup is not sweep-owned",
         "create_manual_activity": "missing dependency: manual activity cleanup unavailable",
+        "delete_activity": "missing dependency: live cleanup is not sweep-owned",
+        "delete_blood_pressure": "missing dependency: live cleanup is not sweep-owned",
         "delete_custom_food": "missing dependency: custom food cleanup unavailable",
         "set_activity_description": "missing dependency: existing activity mutation is not sweep-owned",
         "set_activity_event_type": "missing dependency: existing activity mutation is not sweep-owned",
@@ -72,9 +76,20 @@ def test_live_sweep_has_argument_recipe_for_every_registered_tool(monkeypatch):
         "set_activity_type": "missing dependency: existing activity mutation is not sweep-owned",
         "set_fit_download_dir": "missing dependency: persistent FIT directory mutation is not sweep-owned",
         "set_perceived_effort": "missing dependency: existing activity mutation is not sweep-owned",
+        "set_activity_exercise_sets": "missing dependency: live cleanup is not sweep-owned",
+        "set_gear_default": "missing dependency: live cleanup is not sweep-owned",
         "unschedule_workout": "missing dependency: scheduled workout cleanup is not sweep-owned",
         "unschedule_workouts": "missing dependency: scheduled workout cleanup is not sweep-owned",
         "upsert_and_log": "missing dependency: custom food cleanup unavailable",
+        "upload_activity": "missing dependency: live cleanup is not sweep-owned",
+        "import_activity": "missing dependency: live cleanup is not sweep-owned",
+        "delete_weigh_in": "missing dependency: live cleanup is not sweep-owned",
+        "get_gear_defaults": "missing dependency: user_profile_number",
+        "get_golf_scorecard": "missing dependency: scorecard_id",
+        "get_golf_shot_data": "missing dependency: scorecard_id",
+        "get_scheduled_workout_by_id": "missing dependency: scheduled_workout_id",
+        "get_training_plan_by_id": "missing dependency: training_plan_id",
+        "get_adaptive_training_plan_by_id": "missing dependency: training_plan_id",
     }
 
 
@@ -96,23 +111,23 @@ def test_destructive_recipes_consume_only_sweep_created_ids():
 
     args, skip_reason = sweep.arguments_for("delete_workout", ctx)
     assert skip_reason is None
-    assert args == {"workout_id": 501}
+    assert args == {"workout_id": 501, "confirm": True}
 
     args, skip_reason = sweep.arguments_for("delete_workouts", ctx)
     assert skip_reason is None
-    assert args == {"workout_ids": [502]}
+    assert args == {"workout_ids": [502], "confirm": True}
 
     args, skip_reason = sweep.arguments_for("delete_course", ctx)
     assert skip_reason is None
-    assert args == {"course_id": 601}
+    assert args == {"course_id": 601, "confirm": True}
 
     args, skip_reason = sweep.arguments_for("delete_food_log", ctx)
     assert skip_reason is None
-    assert args == {"log_id": 701}
+    assert args == {"log_id": 701, "meal_date": "2026-05-17", "confirm": True}
 
     args, skip_reason = sweep.arguments_for("delete_weigh_ins", ctx)
     assert skip_reason is None
-    assert args == {"date": "2026-05-17", "delete_all": True}
+    assert args == {"date": "2026-05-17", "delete_all": True, "confirm": True}
 
 
 def test_live_sweep_uses_safe_missing_ids_for_live_mutation_recipes():
@@ -126,6 +141,7 @@ def test_live_sweep_uses_safe_missing_ids_for_live_mutation_recipes():
     assert args == {
         "activity_id": 101,
         "gear_uuid": "00000000-0000-0000-0000-000000000000",
+        "confirm": True,
     }
 
     args, skip_reason = sweep.arguments_for("remove_gear_from_activity", ctx)
@@ -133,6 +149,7 @@ def test_live_sweep_uses_safe_missing_ids_for_live_mutation_recipes():
     assert args == {
         "activity_id": 101,
         "gear_uuid": "00000000-0000-0000-0000-000000000000",
+        "confirm": True,
     }
 
     args, skip_reason = sweep.arguments_for("log_custom_food", ctx)
@@ -145,7 +162,7 @@ def test_live_sweep_uses_safe_missing_ids_for_live_mutation_recipes():
 
     args, skip_reason = sweep.arguments_for("delete_food_log", ctx)
     assert skip_reason is None
-    assert args == {"log_id": -1}
+    assert args == {"log_id": -1, "meal_date": "2026-05-17", "confirm": True}
 
 
 def test_set_activity_name_is_skipped_without_original_name():
@@ -219,16 +236,24 @@ def test_schedule_recipes_prefer_sweep_created_workout_ids():
 
     args, skip_reason = sweep.arguments_for("schedule_workout", ctx)
     assert skip_reason is None
-    assert args == {"workout_id": 501, "calendar_date": "2026-06-16"}
+    assert args == {
+        "workout_id": 501,
+        "calendar_date": "2026-06-16",
+        "confirm": True,
+    }
 
     args, skip_reason = sweep.arguments_for("schedule_week", ctx)
     assert skip_reason is None
-    assert args == {"week": [{"date": "2026-06-16", "workout_id": 501}]}
+    assert args == {
+        "week": [{"date": "2026-06-16", "workout_id": 501}],
+        "confirm": True,
+    }
 
     args, skip_reason = sweep.arguments_for("schedule_workouts", ctx)
     assert skip_reason is None
     assert args == {
-        "schedules": [{"workout_id": 501, "calendar_date": "2026-06-16"}]
+        "schedules": [{"workout_id": 501, "calendar_date": "2026-06-16"}],
+        "confirm": True,
     }
 
 

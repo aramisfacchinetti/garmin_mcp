@@ -15,6 +15,19 @@ def configure(client):
     garmin_client = client
 
 
+def _confirmation_required(method: str, target: Dict[str, Any], warning: str) -> str:
+    return json.dumps(
+        {
+            "status": "confirmation_required",
+            "method": method,
+            "target": target,
+            "warning": warning,
+            "next_step": "Repeat with confirm=true to perform this mutation.",
+        },
+        indent=2,
+    )
+
+
 def _put_activity_update(activity_id: int, payload: Dict[str, Any]) -> Any:
     """Send a partial activity update via PUT to the activity-service endpoint.
 
@@ -310,7 +323,9 @@ def register_tools(app):
             return f"Error retrieving activity: {str(e)}"
 
     @app.tool()
-    async def set_activity_name(activity_id: Union[int, str], activity_name: str) -> str:
+    async def set_activity_name(
+        activity_id: Union[int, str], activity_name: str, confirm: bool = False
+    ) -> str:
         """Set or update the name of an activity.
 
         Args:
@@ -322,6 +337,12 @@ def register_tools(app):
             activity_name = activity_name.strip()
             if not activity_name:
                 return "Activity name cannot be empty"
+            if not confirm:
+                return _confirmation_required(
+                    "set_activity_name",
+                    {"activity_id": activity_id, "activity_name": activity_name},
+                    "This changes the stored activity name.",
+                )
 
             garmin_client.set_activity_name(activity_id, activity_name)
 
@@ -338,7 +359,9 @@ def register_tools(app):
             return f"Error updating activity name: {str(e)}"
 
     @app.tool()
-    async def set_activity_type(activity_id: Union[int, str], type_key: str) -> str:
+    async def set_activity_type(
+        activity_id: Union[int, str], type_key: str, confirm: bool = False
+    ) -> str:
         """Change the activity type (sport) of an activity.
 
         Useful for reclassifying a mislabelled activity, e.g. flipping a run
@@ -362,6 +385,17 @@ def register_tools(app):
                 )
                 return f"Unknown activity type '{type_key}'. Valid type keys: {valid}"
 
+            if not confirm:
+                return _confirmation_required(
+                    "set_activity_type",
+                    {
+                        "activity_id": activity_id,
+                        "type_key": match["typeKey"],
+                        "type_id": match["typeId"],
+                    },
+                    "This changes the sport classification stored on the activity.",
+                )
+
             garmin_client.set_activity_type(
                 activity_id,
                 match["typeId"],
@@ -384,7 +418,7 @@ def register_tools(app):
 
     @app.tool()
     async def set_activity_description(
-        activity_id: Union[int, str], description: str
+        activity_id: Union[int, str], description: str, confirm: bool = False
     ) -> str:
         """Set or update the free-text description (notes) of an activity.
 
@@ -398,6 +432,12 @@ def register_tools(app):
         """
         try:
             activity_id = int(activity_id)
+            if not confirm:
+                return _confirmation_required(
+                    "set_activity_description",
+                    {"activity_id": activity_id, "description": description},
+                    "This changes the stored activity description; an empty value clears it.",
+                )
             _put_activity_update(activity_id, {"description": description})
 
             return json.dumps(
@@ -414,7 +454,7 @@ def register_tools(app):
 
     @app.tool()
     async def set_activity_event_type(
-        activity_id: Union[int, str], event_type: str
+        activity_id: Union[int, str], event_type: str, confirm: bool = False
     ) -> str:
         """Set the event type of an activity.
 
@@ -439,6 +479,13 @@ def register_tools(app):
             if not match:
                 valid = ", ".join(e.get("typeKey") for e in event_types if e.get("typeKey"))
                 return f"Unknown event type '{event_type}'. Valid event types: {valid}"
+
+            if not confirm:
+                return _confirmation_required(
+                    "set_activity_event_type",
+                    {"activity_id": activity_id, "event_type": match["typeKey"]},
+                    "This changes the event classification stored on the activity.",
+                )
 
             _put_activity_update(
                 activity_id,
@@ -465,7 +512,7 @@ def register_tools(app):
 
     @app.tool()
     async def set_perceived_effort(
-        activity_id: Union[int, str], rpe: float
+        activity_id: Union[int, str], rpe: float, confirm: bool = False
     ) -> str:
         """Set the perceived effort (RPE) for an activity.
 
@@ -482,6 +529,12 @@ def register_tools(app):
             rpe = float(rpe)
             if not 0 <= rpe <= 10:
                 return "rpe must be between 0 and 10"
+            if not confirm:
+                return _confirmation_required(
+                    "set_perceived_effort",
+                    {"activity_id": activity_id, "rpe": rpe},
+                    "This changes the perceived-effort value stored on the activity.",
+                )
 
             _update_activity_summary(
                 activity_id, {"directWorkoutRpe": int(round(rpe * 10))}
@@ -500,7 +553,9 @@ def register_tools(app):
             return f"Error updating perceived effort: {str(e)}"
 
     @app.tool()
-    async def set_activity_feel(activity_id: Union[int, str], feel: int) -> str:
+    async def set_activity_feel(
+        activity_id: Union[int, str], feel: int, confirm: bool = False
+    ) -> str:
         """Set how an activity felt ('How did you feel?').
 
         Mirrors Garmin Connect's 5-point feel rating, stored as one of:
@@ -520,6 +575,12 @@ def register_tools(app):
             feel = int(feel)
             if feel not in (0, 25, 50, 75, 100):
                 return "feel must be one of 0, 25, 50, 75, 100"
+            if not confirm:
+                return _confirmation_required(
+                    "set_activity_feel",
+                    {"activity_id": activity_id, "feel": feel},
+                    "This changes the feel value stored on the activity.",
+                )
 
             _update_activity_summary(activity_id, {"directWorkoutFeel": feel})
 
@@ -899,6 +960,7 @@ def register_tools(app):
         activity_name: str = "",
         distance_km: float = 0.0,
         time_zone: str = "UTC",
+        confirm: bool = False,
     ) -> str:
         """Log a manual activity in Garmin Connect — useful for activities done without a watch.
 
@@ -923,6 +985,19 @@ def register_tools(app):
 
             name = activity_name.strip() or type_key.replace("_", " ").title()
             start_datetime = f"{date}T{start_time}:00.000"
+
+            if not confirm:
+                return _confirmation_required(
+                    "create_manual_activity",
+                    {
+                        "activity_name": name,
+                        "type_key": type_key,
+                        "date": date,
+                        "duration_minutes": duration_minutes,
+                        "distance_km": distance_km,
+                    },
+                    "This creates a new manual Garmin activity.",
+                )
 
             result = garmin_client.create_manual_activity(
                 start_datetime=start_datetime,

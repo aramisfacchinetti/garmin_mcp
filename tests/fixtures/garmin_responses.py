@@ -208,13 +208,20 @@ MOCK_DAILY_STEPS = [
 ]
 
 MOCK_TRAINING_READINESS = {
-    "trainingReadinessLevel": 75,
-    "trainingReadinessLevelKey": "GOOD",
+    "calendarDate": "2024-01-15",
+    "timestampLocal": "2024-01-15T07:00:00",
+    "inputContext": "AFTER_WAKEUP_RESET",
+    "score": 75,
+    "level": "GOOD",
+    "feedbackShort": "GOOD",
     "sleepScore": 85,
-    "hrvStatus": "BALANCED",
-    "bodyBatteryLevel": 75,
-    "restingHeartRate": 55,
-    "recentExerciseLoad": 250
+    "recoveryTime": 287,
+    "recoveryTimeChangePhrase": "INCREASED",
+    "recoveryTimeFactorPercent": 80,
+    "recoveryTimeFactorFeedback": "GOOD",
+    "acwrFactorPercent": 90,
+    "acwrFactorFeedback": "GOOD",
+    "acuteLoad": 250,
 }
 
 MOCK_BODY_BATTERY = [
@@ -833,17 +840,17 @@ MOCK_WEEKLY_INTENSITY_MINUTES = [
 ]
 
 MOCK_MORNING_TRAINING_READINESS = {
-    "readinessScore": 75,
-    "readinessLevel": "GOOD",
-    "recoveryTime": 12,
-    "hrvStatus": "BALANCED",
-    "sleepQuality": "GOOD",
+    "calendarDate": "2024-01-15",
+    "timestampLocal": "2024-01-15T07:00:00",
+    "inputContext": "AFTER_WAKEUP_RESET",
+    "score": 75,
+    "level": "GOOD",
+    "feedbackShort": "GOOD",
     "sleepScore": 82,
-    "restingHeartRate": 55,
-    "hrvBaseline": 65,
-    "hrvLastNight": 68,
-    "bodyBattery": 85,
-    "stressLevel": 25,
+    "recoveryTime": 287,
+    "recoveryTimeChangePhrase": "INCREASED",
+    "recoveryTimeFactorPercent": 80,
+    "recoveryTimeFactorFeedback": "GOOD",
 }
 
 # Activity Management

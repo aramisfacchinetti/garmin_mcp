@@ -6,6 +6,8 @@ import re
 from typing import Optional
 from urllib.parse import quote
 
+from garmin_mcp.mutation_safety import confirmation_required
+
 from garminconnect import GarminConnectConnectionError
 
 # The garmin_client will be set by the main file
@@ -397,6 +399,7 @@ def register_tools(app):
         calcium: Optional[float] = None,
         iron: Optional[float] = None,
         vitamin_d: Optional[float] = None,
+        confirm: bool = False,
     ) -> str:
         """Create a custom food in the user's Garmin nutrition library
 
@@ -428,8 +431,20 @@ def register_tools(app):
             calcium: Calcium in mg per serving (NOT %DV)
             iron: Iron in mg per serving (NOT %DV)
             vitamin_d: Vitamin D in mcg per serving (NOT %DV)
+            confirm: Must be true to create the custom food.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "create_custom_food",
+                    {
+                        "food_name": food_name,
+                        "calories": calories,
+                        "serving_unit": serving_unit,
+                        "number_of_units": number_of_units,
+                    },
+                    "This creates a new custom food in Garmin Connect.",
+                )
             nutrition = {
                 "servingUnit": serving_unit,
                 "numberOfUnits": _num_to_str(number_of_units),
@@ -504,6 +519,7 @@ def register_tools(app):
         calcium: Optional[float] = None,
         iron: Optional[float] = None,
         vitamin_d: Optional[float] = None,
+        confirm: bool = False,
     ) -> str:
         """Update an existing custom food in the user's Garmin nutrition library
 
@@ -539,8 +555,20 @@ def register_tools(app):
             calcium: Calcium in mg per serving (NOT %DV)
             iron: Iron in mg per serving (NOT %DV)
             vitamin_d: Vitamin D in mcg per serving (NOT %DV)
+            confirm: Must be true to update the custom food.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "update_custom_food",
+                    {
+                        "food_id": food_id,
+                        "serving_id": serving_id,
+                        "food_name": food_name,
+                        "calories": calories,
+                    },
+                    "This updates the selected custom food in Garmin Connect.",
+                )
             # Fetch current record so omitted fields are preserved (not wiped).
             existing_nutrition: dict = {}
             existing_brand: Optional[str] = None
@@ -624,7 +652,7 @@ def register_tools(app):
             return f"Error updating custom food: {str(e)}"
 
     @app.tool()
-    async def delete_custom_food(food_id: str) -> str:
+    async def delete_custom_food(food_id: str, confirm: bool = False) -> str:
         """Delete a custom food from the user's Garmin nutrition library
 
         Permanently removes a custom food entry. The food must not be
@@ -634,8 +662,15 @@ def register_tools(app):
         Args:
             food_id: ID of the custom food to delete — a 32-char hex string
                 (from get_custom_foods or create_custom_food)
+            confirm: Must be true to permanently delete the custom food.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "delete_custom_food",
+                    {"food_id": food_id},
+                    "This permanently deletes the selected custom food.",
+                )
             url = f"/nutrition-service/customFood/{food_id}"
             garmin_client.client.delete("connectapi", url, api=True)
             return json.dumps(
@@ -659,6 +694,7 @@ def register_tools(app):
         serving_id: str,
         serving_qty: float = 1,
         source: str = "GARMIN",
+        confirm: bool = False,
     ) -> str:
         """Log a food item to a meal on a date
 
@@ -684,8 +720,21 @@ def register_tools(app):
             serving_id: Serving ID from get_custom_foods or search_foods
             serving_qty: Number of servings (default 1)
             source: Food namespace — "GARMIN" (default) or "FATSECRET"
+            confirm: Must be true to add the food to the nutrition log.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "log_custom_food",
+                    {
+                        "meal_date": meal_date,
+                        "meal_time": meal_time,
+                        "food_id": food_id,
+                        "serving_id": serving_id,
+                        "serving_qty": serving_qty,
+                    },
+                    "This adds a custom food entry to the Garmin nutrition log.",
+                )
             from datetime import datetime, timezone
 
             meals_url = f"/nutrition-service/meals/{meal_date}"
@@ -749,6 +798,7 @@ def register_tools(app):
         carbs: float,
         protein: float,
         fat: float,
+        confirm: bool = False,
     ) -> str:
         """Quick-add a food entry with macro values to the nutrition log
 
@@ -765,8 +815,23 @@ def register_tools(app):
             protein: Protein in grams
             fat: Fat in grams
             meal_time: Time in HH:MM:SS format (account timezone)
+            confirm: Must be true to add the food to the nutrition log.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "log_food",
+                    {
+                        "meal_date": meal_date,
+                        "meal_time": meal_time,
+                        "name": name,
+                        "calories": calories,
+                        "carbs": carbs,
+                        "protein": protein,
+                        "fat": fat,
+                    },
+                    "This adds a quick-add food entry to the Garmin nutrition log.",
+                )
             from datetime import datetime, timezone
 
             meals_url = f"/nutrition-service/meals/{meal_date}"
@@ -822,7 +887,9 @@ def register_tools(app):
             return f"Error logging food: {str(e)}"
 
     @app.tool()
-    async def delete_food_log(log_id: str, meal_date: str) -> str:
+    async def delete_food_log(
+        log_id: str, meal_date: str, confirm: bool = False
+    ) -> str:
         """Delete a food log entry
 
         Permanently removes a logged food item from the nutrition log.
@@ -833,8 +900,15 @@ def register_tools(app):
             log_id: Log entry ID to delete — a 32-char hex UUID
                 (from get_nutrition_daily_food_log)
             meal_date: Date of the log entry in YYYY-MM-DD format
+            confirm: Must be true to permanently delete the food log entry.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "delete_food_log",
+                    {"log_id": log_id, "meal_date": meal_date},
+                    "This permanently deletes the selected nutrition log entry.",
+                )
             url = f"/nutrition-service/food/logs/{meal_date}"
             garmin_client.client.delete("connectapi", url, json={"logIds": [log_id]}, api=True)
             return json.dumps({"status": "success", "log_id": log_id, "message": f"Food log entry {log_id} deleted successfully."}, indent=2)
@@ -865,6 +939,7 @@ def register_tools(app):
         serving_unit: str = "G",
         number_of_units: float = 100,
         serving_qty: float = 1,
+        confirm: bool = False,
     ) -> str:
         """Find-or-create a custom food then log it in one step
 
@@ -885,8 +960,21 @@ def register_tools(app):
             serving_unit: Unit for serving size (e.g. "G", "ML", "OZ"). Default "G"
             number_of_units: Serving size in the specified unit. Default 100
             serving_qty: Number of servings to log (default 1)
+            confirm: Must be true to create or log the food.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "upsert_and_log",
+                    {
+                        "meal_date": meal_date,
+                        "meal_time": meal_time,
+                        "food_name": food_name,
+                        "calories": calories,
+                        "serving_qty": serving_qty,
+                    },
+                    "This may create a custom food and adds an entry to the Garmin nutrition log.",
+                )
             from datetime import datetime, timezone
 
             # 1. Search for existing custom food

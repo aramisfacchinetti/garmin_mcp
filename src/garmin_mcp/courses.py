@@ -23,6 +23,8 @@ import os
 import pathlib
 from typing import Any, Dict, Optional
 
+from garmin_mcp.mutation_safety import confirmation_required
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -273,6 +275,7 @@ def register_tools(app):
         course_name: Optional[str] = None,
         activity_type: str = "running",
         description: Optional[str] = None,
+        confirm: bool = False,
     ) -> str:
         """Upload a GPX file as a Garmin Connect Course.
 
@@ -286,8 +289,26 @@ def register_tools(app):
             activity_type: One of running, cycling, hiking, walking, trail_running,
                 mountain_biking, road_biking, gravel_cycling. Defaults to running.
             description: Optional description shown on the course detail page.
+            confirm: Must be true to upload and save the course.
         """
         try:
+            path = pathlib.Path(gpx_path)
+            if path.suffix.lower() != ".gpx":
+                raise ValueError(
+                    f"only .gpx files are allowed, got: {path.suffix or '(no extension)'}"
+                )
+            if not path.is_file():
+                raise FileNotFoundError(f"GPX file not found: {path.resolve()}")
+            if not confirm:
+                return confirmation_required(
+                    "upload_course",
+                    {
+                        "gpx_path": str(path.resolve()),
+                        "course_name": course_name,
+                        "activity_type": activity_type,
+                    },
+                    "This uploads and saves a new Garmin Connect course.",
+                )
             saved = upload_course_file(
                 gpx_path,
                 course_name=course_name,
@@ -300,13 +321,20 @@ def register_tools(app):
             return f"Error uploading course: {str(e)}"
 
     @app.tool()
-    async def delete_course(course_id: int) -> str:
+    async def delete_course(course_id: int, confirm: bool = False) -> str:
         """Delete a course from Garmin Connect.
 
         Args:
             course_id: ID of the course to delete (get IDs from get_courses).
+            confirm: Must be true to permanently delete the course.
         """
         try:
+            if not confirm:
+                return confirmation_required(
+                    "delete_course",
+                    {"course_id": course_id},
+                    "This permanently deletes the selected Garmin Connect course.",
+                )
             garmin_client.client.delete(
                 "connectapi", f"/course-service/course/{course_id}"
             )

@@ -4,6 +4,7 @@ Integration tests for health_wellness module MCP tools
 Tests all 22 health and wellness tools using FastMCP integration with mocked Garmin API responses.
 """
 import pytest
+import json
 from unittest.mock import Mock
 from mcp.server.fastmcp import FastMCP
 
@@ -178,6 +179,29 @@ async def test_get_training_readiness_tool(app_with_health_wellness, mock_garmin
     # Verify
     assert result is not None
     mock_garmin_client.get_training_readiness.assert_called_once_with("2024-01-15")
+
+    data = json.loads(result[0][0].text)
+    assert data[0]["score"] == 75
+    assert data[0]["recovery_time_hours"] == 4.8
+
+
+@pytest.mark.asyncio
+async def test_get_training_readiness_tool_accepts_snapshot_list(
+    app_with_health_wellness, mock_garmin_client
+):
+    """Training readiness also accepts Garmin's list response shape."""
+    mock_garmin_client.get_training_readiness.return_value = [
+        MOCK_TRAINING_READINESS
+    ]
+
+    result = await app_with_health_wellness.call_tool(
+        "get_training_readiness",
+        {"date": "2024-01-15"},
+    )
+
+    data = json.loads(result[0][0].text)
+    assert len(data) == 1
+    assert data[0]["context"] == "AFTER_WAKEUP_RESET"
 
 
 @pytest.mark.asyncio
@@ -614,6 +638,33 @@ async def test_get_morning_training_readiness_tool(app_with_health_wellness, moc
     # Verify
     assert result is not None
     mock_garmin_client.get_morning_training_readiness.assert_called_once_with("2024-01-15")
+
+    data = json.loads(result[0][0].text)
+    assert data["readiness_score"] == 75
+    assert data["readiness_level"] == "GOOD"
+    assert data["recovery_time_hours"] == 4.8
+    assert data["recovery_time_change_phrase"] == "INCREASED"
+
+
+@pytest.mark.asyncio
+async def test_get_morning_training_readiness_tool_preserves_zero_recovery(
+    app_with_health_wellness, mock_garmin_client
+):
+    """A fully recovered snapshot must serialize as 0 hours, not disappear."""
+    mock_garmin_client.get_morning_training_readiness.return_value = {
+        **MOCK_MORNING_TRAINING_READINESS,
+        "recoveryTime": 0,
+        "recoveryTimeChangePhrase": "REACHED_ZERO",
+    }
+
+    result = await app_with_health_wellness.call_tool(
+        "get_morning_training_readiness",
+        {"date": "2024-01-15"},
+    )
+
+    data = json.loads(result[0][0].text)
+    assert data["recovery_time_hours"] == 0.0
+    assert data["recovery_time_change_phrase"] == "REACHED_ZERO"
 
 
 # Error handling tests

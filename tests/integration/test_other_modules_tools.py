@@ -220,7 +220,7 @@ async def test_delete_weigh_ins_tool(app_with_weight, mock_garmin_client):
     mock_garmin_client.delete_weigh_ins.return_value = 1
     result = await app_with_weight.call_tool(
         "delete_weigh_ins",
-        {"date": "2024-01-15", "delete_all": True}
+        {"date": "2024-01-15", "delete_all": True, "confirm": True}
     )
     assert result is not None
     mock_garmin_client.delete_weigh_ins.assert_called_once_with("2024-01-15", delete_all=True)
@@ -233,7 +233,7 @@ async def test_add_weigh_in_tool(app_with_weight, mock_garmin_client):
     mock_garmin_client.add_weigh_in.return_value = add_response
     result = await app_with_weight.call_tool(
         "add_weigh_in",
-        {"weight": 70.5, "unit_key": "kg"}
+        {"weight": 70.5, "unit_key": "kg", "confirm": True}
     )
     assert result is not None
     mock_garmin_client.add_weigh_in.assert_called_once_with(weight=70.5, unitKey="kg")
@@ -246,10 +246,20 @@ async def test_add_weigh_in_with_timestamps_tool(app_with_weight, mock_garmin_cl
     mock_garmin_client.add_weigh_in_with_timestamps.return_value = add_response
     result = await app_with_weight.call_tool(
         "add_weigh_in_with_timestamps",
-        {"weight": 70.5, "unit_key": "kg"}
+        {"weight": 70.5, "unit_key": "kg", "confirm": True}
     )
     assert result is not None
     # Note: function has optional date_timestamp and gmt_timestamp parameters
+
+
+@pytest.mark.asyncio
+async def test_weight_writes_are_preview_only_by_default(app_with_weight, mock_garmin_client):
+    result = await app_with_weight.call_tool(
+        "add_weigh_in", {"weight": 70.5, "unit_key": "kg"}
+    )
+
+    assert json.loads(result[0][0].text)["status"] == "confirmation_required"
+    mock_garmin_client.add_weigh_in.assert_not_called()
 
 
 # User Profile module tests
@@ -316,7 +326,7 @@ async def test_add_body_composition_tool(app_with_data_management, mock_garmin_c
     mock_garmin_client.add_body_composition.return_value = add_response
     result = await app_with_data_management.call_tool(
         "add_body_composition",
-        {"date": "2024-01-15", "weight": 70.0, "percent_fat": 15.0}
+        {"date": "2024-01-15", "weight": 70.0, "percent_fat": 15.0, "confirm": True}
     )
     assert result is not None
     mock_garmin_client.add_body_composition.assert_called_once_with(
@@ -343,7 +353,7 @@ async def test_set_blood_pressure_tool(app_with_data_management, mock_garmin_cli
     mock_garmin_client.set_blood_pressure.return_value = add_response
     result = await app_with_data_management.call_tool(
         "set_blood_pressure",
-        {"systolic": 120, "diastolic": 80, "pulse": 65}
+        {"systolic": 120, "diastolic": 80, "pulse": 65, "confirm": True}
     )
     assert result is not None
     mock_garmin_client.set_blood_pressure.assert_called_once_with(120, 80, 65, notes=None)
@@ -356,7 +366,7 @@ async def test_add_hydration_data_tool(app_with_data_management, mock_garmin_cli
     mock_garmin_client.add_hydration_data.return_value = add_response
     result = await app_with_data_management.call_tool(
         "add_hydration_data",
-        {"value_in_ml": 500, "cdate": "2024-01-15", "timestamp": "2024-01-15T10:00:00"}
+        {"value_in_ml": 500, "cdate": "2024-01-15", "timestamp": "2024-01-15T10:00:00", "confirm": True}
     )
     assert result is not None
     mock_garmin_client.add_hydration_data.assert_called_once_with(
@@ -364,6 +374,19 @@ async def test_add_hydration_data_tool(app_with_data_management, mock_garmin_cli
         cdate="2024-01-15",
         timestamp="2024-01-15T10:00:00"
     )
+
+
+@pytest.mark.asyncio
+async def test_data_management_writes_are_preview_only_by_default(
+    app_with_data_management, mock_garmin_client
+):
+    result = await app_with_data_management.call_tool(
+        "add_hydration_data",
+        {"value_in_ml": 500, "cdate": "2024-01-15", "timestamp": "2024-01-15T10:00:00"},
+    )
+
+    assert json.loads(result[0][0].text)["status"] == "confirmation_required"
+    mock_garmin_client.add_hydration_data.assert_not_called()
 
 
 # Gear Management module tests
@@ -416,10 +439,21 @@ async def test_add_gear_to_activity_tool(app_with_gear, mock_garmin_client):
     mock_garmin_client.add_gear_to_activity.return_value = {}
     result = await app_with_gear.call_tool(
         "add_gear_to_activity",
-        {"activity_id": 12345678901, "gear_uuid": "abc123"}
+        {"activity_id": 12345678901, "gear_uuid": "abc123", "confirm": True}
     )
     assert result is not None
     mock_garmin_client.add_gear_to_activity.assert_called_once_with("abc123", 12345678901)
+
+
+@pytest.mark.asyncio
+async def test_gear_writes_are_preview_only_by_default(app_with_gear, mock_garmin_client):
+    result = await app_with_gear.call_tool(
+        "add_gear_to_activity",
+        {"activity_id": 12345678901, "gear_uuid": "abc123"},
+    )
+
+    assert json.loads(result[0][0].text)["status"] == "confirmation_required"
+    mock_garmin_client.add_gear_to_activity.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -433,7 +467,7 @@ async def test_add_gear_to_activity_missing_gear_is_unavailable(
 
     result = await app_with_gear.call_tool(
         "add_gear_to_activity",
-        {"activity_id": 12345678901, "gear_uuid": "missing"},
+        {"activity_id": 12345678901, "gear_uuid": "missing", "confirm": True},
     )
 
     assert result[0][0].text == (
@@ -448,7 +482,7 @@ async def test_remove_gear_from_activity_tool(app_with_gear, mock_garmin_client)
     mock_garmin_client.remove_gear_from_activity.return_value = {}
     result = await app_with_gear.call_tool(
         "remove_gear_from_activity",
-        {"activity_id": 12345678901, "gear_uuid": "abc123"}
+        {"activity_id": 12345678901, "gear_uuid": "abc123", "confirm": True}
     )
     assert result is not None
     mock_garmin_client.remove_gear_from_activity.assert_called_once_with("abc123", 12345678901)
@@ -465,7 +499,7 @@ async def test_remove_gear_from_activity_missing_gear_is_unavailable(
 
     result = await app_with_gear.call_tool(
         "remove_gear_from_activity",
-        {"activity_id": 12345678901, "gear_uuid": "missing"},
+        {"activity_id": 12345678901, "gear_uuid": "missing", "confirm": True},
     )
 
     assert result[0][0].text == (

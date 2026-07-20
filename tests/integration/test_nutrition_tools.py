@@ -19,6 +19,22 @@ def app_with_nutrition(mock_garmin_client):
     nutrition.configure(mock_garmin_client)
     app = FastMCP("Test Nutrition")
     app = nutrition.register_tools(app)
+
+    # Preserve the pre-confirmation tests' endpoint-focused intent. Calls that
+    # omit the new flag are treated as explicitly confirmed; preview tests pass
+    # confirm=False and therefore still exercise the safe default.
+    mutation_names = {
+        "create_custom_food", "update_custom_food", "delete_custom_food",
+        "log_custom_food", "log_food", "delete_food_log", "upsert_and_log",
+    }
+    raw_call_tool = app.call_tool
+
+    async def call_tool(name, arguments, *args, **kwargs):
+        if name in mutation_names and "confirm" not in arguments:
+            arguments = {**arguments, "confirm": True}
+        return await raw_call_tool(name, arguments, *args, **kwargs)
+
+    app.call_tool = call_tool
     return app
 
 
@@ -26,6 +42,17 @@ def _connection_error_with_status(status_code: int, message: str = "API error"):
     exc = GarminConnectConnectionError(message)
     exc.response = Mock(status_code=status_code)
     return exc
+
+
+@pytest.mark.asyncio
+async def test_create_custom_food_requires_confirmation(app_with_nutrition, mock_garmin_client):
+    result = await app_with_nutrition.call_tool(
+        "create_custom_food",
+        {"food_name": "Preview Food", "calories": 100, "confirm": False},
+    )
+
+    assert '"status": "confirmation_required"' in result[0][0].text
+    mock_garmin_client.client.put.assert_not_called()
 
 
 # get_nutrition_daily_food_log tests

@@ -168,6 +168,9 @@ async def test_get_training_effect_tool(app_with_training, mock_garmin_client):
     assert result is not None
     mock_garmin_client.get_activity.assert_called_once_with(12345678901)
 
+    data = json.loads(result[0][0].text)
+    assert data["recovery_time_hours"] == 12.0
+
 
 @pytest.mark.asyncio
 async def test_get_hrv_data_tool(app_with_training, mock_garmin_client):
