@@ -427,6 +427,22 @@ def test_content_to_text_extracts_fastmcp_call_tool_tuple():
     assert sweep.classify(text) == "ERROR"
 
 
+def test_retryable_garmin_gateway_timeout_is_external_unavailability():
+    text = (
+        "Error retrieving training status: API Error 504 - "
+        "origin_gateway_timeout"
+    )
+
+    assert sweep.classify(text) == "UPSTREAM_UNAVAILABLE"
+
+
+def test_account_limited_custom_food_endpoint_is_not_an_implementation_error():
+    text = "Error retrieving custom foods: API Error 403 - HTTP 403 Forbidden"
+
+    assert sweep.classify(text, "get_custom_foods") == "ACCOUNT_LIMITED"
+    assert sweep.classify(text) == "ERROR"
+
+
 def test_failed_json_status_is_an_error():
     text = json.dumps(
         {

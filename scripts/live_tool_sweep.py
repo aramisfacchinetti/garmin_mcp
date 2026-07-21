@@ -140,6 +140,17 @@ EXPECTED_NO_DATA_PREFIXES = (
     "No ",
 )
 
+RETRYABLE_UPSTREAM_MARKERS = (
+    "api error 504",
+    "error 504: gateway time-out",
+    "origin_gateway_timeout",
+)
+
+ACCOUNT_LIMITED_TOOLS = {
+    "get_custom_food_serving_units",
+    "get_custom_foods",
+}
+
 SWEEP_CUSTOM_FOOD_NAME_PREFIX = "garmin mcp live sweep food"
 SWEEP_QUICK_ADD_NAME_PREFIX = "garmin mcp live sweep quick add"
 
@@ -875,8 +886,15 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
     return None, "no argument recipe"
 
 
-def classify(text: str) -> str:
+def classify(text: str, tool_name: str | None = None) -> str:
     stripped = text.strip()
+    lowered = stripped.lower()
+    if tool_name in ACCOUNT_LIMITED_TOOLS and (
+        "403" in lowered or "forbidden" in lowered
+    ):
+        return "ACCOUNT_LIMITED"
+    if any(marker in lowered for marker in RETRYABLE_UPSTREAM_MARKERS):
+        return "UPSTREAM_UNAVAILABLE"
     if stripped.startswith("Error"):
         return "ERROR"
     if stripped.startswith(EXPECTED_NO_DATA_PREFIXES):
@@ -1007,7 +1025,7 @@ async def sweep_tools(
         try:
             content = await app.call_tool(name, call_args or {})
             text = content_to_text(content)
-            status = classify(text)
+            status = classify(text, name)
             if include_mutations and status in {"OK", "NO_DATA"}:
                 record_created_artifacts(name, text, ctx, client)
             results.append(
