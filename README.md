@@ -20,32 +20,34 @@ Garmin's API is accessed via the awesome [python-garminconnect](https://github.c
 - Inspect detailed workout step structures, including repeat groups and swim pace targets
 - Weekly health aggregates (steps, stress, intensity minutes)
 - Advanced cycling analytics: power zones, FIT file analysis, DI2 electronic shift intelligence
-- Training load trend (CTL/ATL/TSB), HRV trend, VO2 max trend, respiration rate trend
+- Garmin training-load trend plus a separately labeled local stress-balance diagnostic; HRV, VO2 max, and respiration trends
 - Power Duration Curve, climb detection with VAM, cardiac drift (aerobic decoupling), W/kg calculations
+- Date-range summaries for daily stats, sleep, and nutrition; composition-based energy-balance estimates
+- Running Tolerance trends, heat/altitude acclimation, saved heart-rate zones, calendar events, and course details/GPX downloads
+- A versioned metric-semantics catalog available as an MCP tool and resource
 
 ### Tool Coverage
 
-This MCP server registers **160 tools** covering the supported consumer-client surface of [python-garminconnect](https://github.com/cyberjunky/python-garminconnect), including bounded read-only and confirmation-gated parity wrappers for the pinned v0.3.6 client:
+This MCP server covers the supported consumer-client surface of [python-garminconnect](https://github.com/cyberjunky/python-garminconnect), including bounded read-only and confirmation-gated parity wrappers for the pinned v0.3.6 client. The live tool and output-field counts and fingerprints are published by `get_metric_catalog` and `garmin://metric-catalog`.
 
-- ✅ Activity Management (21 tools) - includes write tools for type, description, event type, perceived effort, and feel
-- ✅ Health & Wellness (29 tools) - includes custom lightweight summary tools
-- ✅ Training & Performance (14 tools) - includes CTL/ATL/TSB, HRV, VO2 max, and respiration trends
-- ✅ Workouts (13 tools)
-- ✅ Devices (6 tools)
-- ✅ Gear Management (3 tools)
-- ✅ Weight Tracking (5 tools)
-- ✅ Challenges & Badges (9 tools)
-- ✅ Nutrition (12 tools) - food logs, meals, custom foods, and food logging
-- ✅ Women's Health (3 tools)
-- ✅ User Profile (4 tools)
-- ✅ High-Level Workout Builders (5 tools) - create and schedule workouts without writing JSON
-- ✅ Courses (3 tools) - list / upload GPX as course / delete course
-- ✅ Activity Analysis (4 tools) - FIT file parsing, Power Duration Curve; requires power meter and/or Di2
-- ✅ Activity File Downloads (2 tools) - download activity files in FIT, GPX, TCX, or CSV format
-- ✅ Consumer API Parity Reads (18 tools) - bounded activity details, metrics, badges, gear, plans, scheduled workouts, and golf data
-- ✅ Consumer API Parity Writes (8 tools) - confirmation-gated activity import/upload, manual JSON activity creation, exercise-set replacement, gear-default changes, and exact-record deletion
+- ✅ Activity Management - includes write tools for type, description, event type, perceived effort, and feel
+- ✅ Health & Wellness - includes custom lightweight and date-range summaries
+- ✅ Training & Performance - includes Garmin load values, local diagnostics, acclimation, Running Tolerance, HRV, VO2 max, and respiration trends
+- ✅ Workouts, devices, gear, weight tracking, challenges, nutrition, and women's health
+- ✅ User Profile - includes read-only heart-rate zone configuration
+- ✅ High-Level Workout Builders - create and schedule workouts without writing JSON
+- ✅ Courses - list, inspect, upload, download GPX, and delete courses
+- ✅ Activity Analysis - FIT parsing, generic FIT message access, Power Duration Curve; requires power meter and/or Di2 for some analyses
+- ✅ Activity File Downloads - download activity files in FIT, GPX, TCX, or CSV format
+- ✅ Calendar Events - read Garmin Connect race and event entries
+- ✅ Consumer API Parity Reads and confirmation-gated Writes
+- ✅ Metric Semantics - versioned catalog of curated metrics and explicitly opaque output fields
 
 > **Note:** Activity Analysis tools require a compatible power meter (e.g., Garmin Rally, Favero Assioma, PowerTap P1) and/or Shimano Di2 / SRAM eTap electronic shifting. The `fitparse` dependency is installed automatically.
+
+### Metric Semantics Catalog
+
+Use `get_metric_catalog` or read the `garmin://metric-catalog` resource to obtain producer contract version `2026.09.1`, including exact metric paths, source references, coverage classifications, and inventory fingerprints. Fields without an explicit catalog mapping remain opaque; field names alone do not establish units, aggregation windows, or coaching meaning.
 
 ### Activity File Downloads
 
@@ -92,8 +94,8 @@ If you need any of these endpoints, please [open an issue](https://github.com/Ta
 
 ## Tool Filtering
 
-This server registers 160 tools by default, which can be a lot of context for
-an LLM to carry in every session. You can expose only the tools you need with
+This server exposes its full cataloged tool inventory by default, which can be
+a lot of context for an LLM to carry in every session. You can expose only the tools you need with
 two optional environment variables:
 
 | Env var | Effect |

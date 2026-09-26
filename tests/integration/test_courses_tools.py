@@ -5,6 +5,7 @@ Covers get_courses, upload_course, and delete_course using FastMCP integration
 with a mocked Garmin client. No real Garmin account or network access is used.
 """
 import json
+import xml.etree.ElementTree as ET
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -77,6 +78,114 @@ async def test_get_courses_error_is_caught(app_with_courses, mock_garmin_client)
     result = await app_with_courses.call_tool("get_courses", {})
 
     assert "Error listing courses" in _result_text(result)
+
+
+# --- get_course_details --------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_course_details_success(app_with_courses, mock_garmin_client):
+    mock_garmin_client.client.domain = "garmin.com"
+    mock_garmin_client.client.connectapi.return_value = {
+        "courseId": 777,
+        "courseName": "Bikepack Day 1",
+        "distanceInMeters": 45000.0,
+        "elevationGainInMeters": 350.0,
+        "elevationLossInMeters": 300.0,
+        "activityType": {"typeKey": "gravel_cycling"},
+        "coursePoints": [
+            {
+                "name": "Water Fountain",
+                "pointType": "WATER",
+                "lat": 52.2,
+                "lon": 21.0,
+                "distance": 12000.0,
+            }
+        ],
+        "geoPoints": [
+            {"latitude": 52.1, "longitude": 20.9},
+            {"latitude": 52.2, "longitude": 21.0},
+        ],
+    }
+
+    result = await app_with_courses.call_tool("get_course_details", {"course_id": 777})
+
+    data = json.loads(_result_text(result))
+    assert data["course_id"] == 777
+    assert data["name"] == "Bikepack Day 1"
+    assert data["distance_m"] == 45000.0
+    assert data["waypoints_count"] == 1
+    assert data["waypoints"][0]["type"] == "WATER"
+    assert data["geo_points_count"] == 2
+    assert data["url"].endswith("/modern/course/777")
+    mock_garmin_client.client.connectapi.assert_called_once_with(
+        "/course-service/course/777"
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_course_details_error_is_caught(app_with_courses, mock_garmin_client):
+    mock_garmin_client.client.connectapi.side_effect = Exception("Not found")
+
+    result = await app_with_courses.call_tool("get_course_details", {"course_id": 999})
+
+    assert "Error fetching course details" in _result_text(result)
+
+
+# --- download_course_gpx -------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_download_course_gpx_writes_valid_escaped_gpx(
+    app_with_courses, mock_garmin_client, tmp_path
+):
+    mock_garmin_client.client.connectapi.return_value = {
+        "courseId": 888,
+        "courseName": "Mountain & Pass",
+        "geoPoints": [
+            {"latitude": 46.1, "longitude": 8.1, "elevation": 1200.0},
+            {"latitude": 46.2, "longitude": 8.2, "elevation": 1400.0},
+        ],
+        "coursePoints": [
+            {
+                "name": "Summit <Rest> & Water",
+                "pointType": "SUMMIT",
+                "lat": 46.2,
+                "lon": 8.2,
+            }
+        ],
+    }
+    output_file = tmp_path / "mountain_pass.gpx"
+
+    result = await app_with_courses.call_tool(
+        "download_course_gpx",
+        {"course_id": 888, "output_path": str(output_file)},
+    )
+
+    data = json.loads(_result_text(result))
+    assert data["status"] == "success"
+    assert data["course_id"] == 888
+    assert data["waypoints_count"] == 1
+    assert data["track_points_count"] == 2
+    assert output_file.is_file()
+
+    namespace = {"gpx": "http://www.topografix.com/GPX/1/1"}
+    root = ET.fromstring(output_file.read_text(encoding="utf-8"))
+    assert root.find("gpx:metadata/gpx:name", namespace).text == "Mountain & Pass"
+    assert root.find("gpx:wpt/gpx:name", namespace).text == "Summit <Rest> & Water"
+    track_points = root.findall("gpx:trk/gpx:trkseg/gpx:trkpt", namespace)
+    assert len(track_points) == 2
+    assert track_points[0].attrib == {"lat": "46.1", "lon": "8.1"}
+    assert track_points[0].find("gpx:ele", namespace).text == "1200.0"
+
+
+@pytest.mark.asyncio
+async def test_download_course_gpx_missing_course(app_with_courses, mock_garmin_client):
+    mock_garmin_client.client.connectapi.return_value = {}
+
+    result = await app_with_courses.call_tool(
+        "download_course_gpx", {"course_id": 404}
+    )
+
+    assert "Error: course 404 not found" in _result_text(result)
 
 
 # --- upload_course --------------------------------------------------------

@@ -129,6 +129,31 @@ async def test_get_activity_tool(app_with_activity_management, mock_garmin_clien
 
 
 @pytest.mark.asyncio
+async def test_get_activity_exposes_canonical_training_metric_fields(
+    app_with_activity_management, mock_garmin_client
+):
+    mock_garmin_client.get_activity.return_value = {
+        "activityId": 123,
+        "summaryDTO": {
+            "trainingEffect": 3.2,
+            "anaerobicTrainingEffect": 1.1,
+            "activityTrainingLoad": 85,
+            "recoveryTime": 240,
+        },
+    }
+
+    result = await app_with_activity_management.call_tool(
+        "get_activity", {"activity_id": 123}
+    )
+
+    data = json.loads(result[0][0].text)
+    assert data["aerobic_training_effect"] == 3.2
+    assert data["anaerobic_training_effect"] == 1.1
+    assert data["exercise_load"] == 85
+    assert data["recovery_time_minutes"] == 240
+
+
+@pytest.mark.asyncio
 async def test_get_activity_handles_null_nested_sections(
     app_with_activity_management, mock_garmin_client
 ):

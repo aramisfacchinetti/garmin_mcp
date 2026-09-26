@@ -19,6 +19,8 @@ from tests.fixtures.garmin_responses import (
     MOCK_CYCLING_FTP,
     MOCK_ENDURANCE_SCORE,
     MOCK_ACTIVITY_TYPES,
+    MOCK_RUNNING_TOLERANCE_DAILY_TREND,
+    MOCK_RUNNING_TOLERANCE_WEEKLY,
 )
 
 
@@ -169,7 +171,32 @@ async def test_get_training_effect_tool(app_with_training, mock_garmin_client):
     mock_garmin_client.get_activity.assert_called_once_with(12345678901)
 
     data = json.loads(result[0][0].text)
+    assert data["aerobic_training_effect"] == 3.5
+    assert data["anaerobic_training_effect"] == 2.0
+    assert data["recovery_time_minutes"] == 720
     assert data["recovery_time_hours"] == 12.0
+    assert data["exercise_load"] == 150
+
+
+@pytest.mark.asyncio
+async def test_get_training_load_trend_distinguishes_garmin_values_from_local_balance(
+    app_with_training, mock_garmin_client
+):
+    mock_garmin_client.get_training_status.return_value = MOCK_TRAINING_STATUS
+
+    result = await app_with_training.call_tool(
+        "get_training_load_trend",
+        {"start_date": "2024-01-15", "end_date": "2024-01-15"},
+    )
+
+    point = json.loads(result[0][0].text)["trend"][0]
+    assert point["garmin_acute_load"] == 250
+    assert point["garmin_chronic_load"] == 220
+    assert point["garmin_acute_chronic_load_ratio"] == 1.14
+    assert point["local_training_stress_balance"] == -30
+    assert point["atl"] == 250
+    assert point["ctl"] == 220
+    assert point["tsb"] == -30
 
 
 @pytest.mark.asyncio
@@ -632,6 +659,8 @@ async def test_get_lactate_threshold_tool_latest(app_with_training, mock_garmin_
     assert data["functional_threshold_power_watts"] == 334
     assert data["sport"] == "RUNNING"
     assert data["power_to_weight"] == 4.575
+    assert data["source_date"] == "2024-01-15T10:30:00.000"
+    assert data["source_method"] == "garmin_lactate_threshold_dto"
 
 
 @pytest.mark.asyncio
@@ -722,6 +751,113 @@ async def test_get_training_status_includes_cycling_vo2_max(app_with_training, m
 
 
 @pytest.mark.asyncio
+async def test_get_running_tolerance_trend_daily_sorts_by_date(app_with_training, mock_garmin_client):
+    """Test get_running_tolerance_trend sorts the unordered daily response"""
+    mock_garmin_client.get_running_tolerance.return_value = MOCK_RUNNING_TOLERANCE_DAILY_TREND
+
+    result = await app_with_training.call_tool(
+        "get_running_tolerance_trend",
+        {"start_date": "2024-01-15", "end_date": "2024-01-16", "aggregation": "daily"}
+    )
+
+    assert result is not None
+    mock_garmin_client.get_running_tolerance.assert_called_once_with(
+        "2024-01-15", "2024-01-16", aggregation="daily"
+    )
+
+    data = json.loads(result[0][0].text)
+    assert data["aggregation"] == "daily"
+    assert data["data_points"] == 2
+    assert [p["date"] for p in data["trend"]] == ["2024-01-15", "2024-01-16"]
+    assert data["first_tolerance_km"] == 34.0
+    assert data["latest_tolerance_km"] == 34.5
+    assert data["tolerance_change_km"] == 0.5
+    assert data["trend"][0]["feedback_phrase"] == "MEDIUM_LOAD"
+    assert "start_of_week" not in data["trend"][0]
+
+
+@pytest.mark.asyncio
+async def test_get_running_tolerance_trend_weekly_default(app_with_training, mock_garmin_client):
+    """Test get_running_tolerance_trend defaults to weekly aggregation"""
+    mock_garmin_client.get_running_tolerance.return_value = MOCK_RUNNING_TOLERANCE_WEEKLY
+
+    result = await app_with_training.call_tool(
+        "get_running_tolerance_trend",
+        {"start_date": "2024-01-02", "end_date": "2024-01-15"}
+    )
+
+    assert result is not None
+    mock_garmin_client.get_running_tolerance.assert_called_once_with(
+        "2024-01-02", "2024-01-15", aggregation="weekly"
+    )
+
+    data = json.loads(result[0][0].text)
+    assert data["aggregation"] == "weekly"
+    week = data["trend"][0]
+    assert week["start_of_week"] == "2024-01-02"
+    assert week["end_of_week"] == "2024-01-08"
+    assert week["week_index"] == 1900
+    assert week["tolerance_km"] == 33.0
+    assert week["acute_load_km"] == 26.0
+    assert week["distance_km"] == 24.0
+    assert "feedback_phrase" not in week
+
+
+@pytest.mark.asyncio
+async def test_get_running_tolerance_trend_unsupported_device(app_with_training, mock_garmin_client):
+    """Test get_running_tolerance_trend when the account/device has no data"""
+    mock_garmin_client.get_running_tolerance.return_value = []
+
+    result = await app_with_training.call_tool(
+        "get_running_tolerance_trend",
+        {"start_date": "2024-01-01", "end_date": "2024-01-07"}
+    )
+
+    assert result is not None
+    assert result[0][0].text == "Your device does not support this metric."
+
+
+@pytest.mark.asyncio
+async def test_get_running_tolerance_trend_error(app_with_training, mock_garmin_client):
+    """Test get_running_tolerance_trend when the API raises an exception"""
+    mock_garmin_client.get_running_tolerance.side_effect = Exception("API Error")
+
+    result = await app_with_training.call_tool(
+        "get_running_tolerance_trend",
+        {"start_date": "2024-01-01", "end_date": "2024-01-07"}
+    )
+
+    assert result is not None
+    assert "Error retrieving running tolerance trend" in result[0][0].text
+
+
+@pytest.mark.asyncio
+async def test_get_running_tolerance_trend_invalid_range(app_with_training, mock_garmin_client):
+    """Test get_running_tolerance_trend rejects end_date before start_date"""
+    result = await app_with_training.call_tool(
+        "get_running_tolerance_trend",
+        {"start_date": "2024-01-15", "end_date": "2024-01-01"}
+    )
+
+    assert result is not None
+    assert "end_date must be on or after start_date" in result[0][0].text
+    mock_garmin_client.get_running_tolerance.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_running_tolerance_trend_daily_range_too_large(app_with_training, mock_garmin_client):
+    """Test get_running_tolerance_trend enforces the 90-day cap for daily aggregation"""
+    result = await app_with_training.call_tool(
+        "get_running_tolerance_trend",
+        {"start_date": "2024-01-01", "end_date": "2024-04-15", "aggregation": "daily"}
+    )
+
+    assert result is not None
+    assert "Date range too large" in result[0][0].text
+    mock_garmin_client.get_running_tolerance.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_get_training_status_no_cycling_vo2_when_absent(app_with_training, mock_garmin_client):
     """Test that cycling VO2 fields are omitted when the cycling subkey is missing."""
     status_without_cycling = {
@@ -765,3 +901,65 @@ async def test_get_training_status_handles_null_cycling_vo2(app_with_training, m
     data = json.loads(text)
     assert data["vo2_max"] == 52.5
     assert "cycling_vo2_max" not in data
+
+
+@pytest.mark.asyncio
+async def test_get_acclimation_returns_heat_data(app_with_training, mock_garmin_client):
+    """Test get_acclimation returns curated heat/altitude acclimation data."""
+    mock_garmin_client.get_max_metrics.return_value = [
+        {
+            "heatAltitudeAcclimation": {
+                "calendarDate": "2024-07-15",
+                "heatAcclimationPercentage": 72.5,
+                "previousHeatAcclimationPercentage": 65.0,
+                "heatTrend": "ACCLIMATIZED",
+                "heatAcclimationDate": "2024-07-15",
+                "altitudeAcclimation": 1200,
+                "altitudeTrend": "INCREASING",
+                "currentAltitude": 850,
+            }
+        }
+    ]
+
+    result = await app_with_training.call_tool(
+        "get_acclimation",
+        {"date": "2024-07-15"},
+    )
+
+    data = json.loads(result[0][0].text)
+    assert data["date"] == "2024-07-15"
+    assert data["heat_acclimation_percent"] == 72.5
+    assert data["previous_heat_acclimation_percent"] == 65.0
+    assert data["heat_trend"] == "ACCLIMATIZED"
+    assert data["heat_acclimation_change"] == 7.5
+    assert data["altitude_acclimation_meters"] == 1200
+    assert data["altitude_trend"] == "INCREASING"
+    mock_garmin_client.get_max_metrics.assert_called_once_with("2024-07-15")
+
+
+@pytest.mark.asyncio
+async def test_get_acclimation_no_data(app_with_training, mock_garmin_client):
+    """Test get_acclimation handles missing heatAltitudeAcclimation."""
+    mock_garmin_client.get_max_metrics.return_value = [
+        {"generic": {"calendarDate": "2024-07-15", "vo2MaxValue": 48.0}}
+    ]
+
+    result = await app_with_training.call_tool(
+        "get_acclimation",
+        {"date": "2024-07-15"},
+    )
+
+    assert "No acclimation data" in result[0][0].text
+
+
+@pytest.mark.asyncio
+async def test_get_acclimation_exception(app_with_training, mock_garmin_client):
+    """Test get_acclimation error handling."""
+    mock_garmin_client.get_max_metrics.side_effect = Exception("API Error")
+
+    result = await app_with_training.call_tool(
+        "get_acclimation",
+        {"date": "2024-07-15"},
+    )
+
+    assert "Error" in result[0][0].text

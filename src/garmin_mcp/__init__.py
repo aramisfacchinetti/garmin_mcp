@@ -31,6 +31,8 @@ from garmin_mcp import courses
 from garmin_mcp import activity_analysis
 from garmin_mcp import consumer_parity
 from garmin_mcp import consumer_writes
+from garmin_mcp import calendar_events
+from garmin_mcp import metric_catalog
 
 
 def is_interactive_terminal() -> bool:
@@ -418,6 +420,7 @@ def main():
     activity_analysis.configure(garmin_client)
     consumer_parity.configure(garmin_client)
     consumer_writes.configure(garmin_client)
+    calendar_events.configure(garmin_client)
 
     # Create the MCP app, wrapped so the env-var filter can drop tools.
     # host/port only matter for the HTTP transports; stdio ignores them.
@@ -446,6 +449,8 @@ def main():
     app = activity_analysis.register_tools(app)
     app = consumer_parity.register_tools(app)
     app = consumer_writes.register_tools(app)
+    app = calendar_events.register_tools(app)
+    app = metric_catalog.register_tools(app)
 
     # Register resources (workout templates)
     app = workout_templates.register_resources(app)
