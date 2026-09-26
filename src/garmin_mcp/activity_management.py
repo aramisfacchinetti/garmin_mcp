@@ -5,6 +5,8 @@ import json
 import datetime
 from typing import Any, Dict, List, Optional, Union
 
+from garmin_mcp.metrics import recovery_time_hours
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -287,9 +289,11 @@ def register_tools(app):
 
                 # Training effect
                 "training_effect": summary.get('trainingEffect'),
+                "aerobic_training_effect": summary.get('trainingEffect'),
                 "anaerobic_training_effect": summary.get('anaerobicTrainingEffect'),
                 "training_effect_label": summary.get('trainingEffectLabel'),
                 "training_load": summary.get('activityTrainingLoad'),
+                "exercise_load": summary.get('activityTrainingLoad'),
 
                 # Intensity minutes
                 "moderate_intensity_minutes": summary.get('moderateIntensityMinutes'),
@@ -303,6 +307,8 @@ def register_tools(app):
 
                 # Recovery
                 "recovery_hr_bpm": summary.get('recoveryHeartRate'),
+                "recovery_time_minutes": summary.get('recoveryTime'),
+                "recovery_time_hours": recovery_time_hours(summary.get('recoveryTime')),
                 "body_battery_impact": summary.get('differenceBodyBattery'),
 
                 # Workout feedback

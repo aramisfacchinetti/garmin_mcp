@@ -22,6 +22,7 @@ import math
 import os
 import pathlib
 from typing import Any, Dict, Optional
+from xml.sax.saxutils import escape, quoteattr
 
 from garmin_mcp.mutation_safety import confirmation_required
 
@@ -236,6 +237,19 @@ def _build_course_payload(
     }
 
 
+def _resolve_gpx_output_path(course_id: int, output_path: Optional[str] = None) -> str:
+    """Resolve the destination file path for downloading a course GPX."""
+    if output_path:
+        path = os.path.abspath(os.path.expanduser(output_path))
+        if os.path.isdir(path) or output_path.endswith(("/", "\\")):
+            return os.path.join(path, f"{course_id}.gpx")
+        return path
+
+    download_dir = os.getenv("GARMIN_FIT_DOWNLOAD_DIR")
+    base_dir = os.path.abspath(os.path.expanduser(download_dir or "./courses"))
+    return os.path.join(base_dir, f"{course_id}.gpx")
+
+
 def register_tools(app):
     """Register course management tools"""
 
@@ -268,6 +282,158 @@ def register_tools(app):
             return json.dumps({"count": len(curated), "courses": curated}, indent=2)
         except Exception as e:
             return f"Error listing courses: {str(e)}"
+
+    @app.tool()
+    async def get_course_details(course_id: int) -> str:
+        """Get full details of a Garmin Connect course by ID.
+
+        Returns course metadata and custom course waypoints.
+
+        Args:
+            course_id: ID of the course (from get_courses).
+        """
+        try:
+            data = garmin_client.client.connectapi(
+                f"/course-service/course/{course_id}"
+            )
+            if not isinstance(data, dict):
+                return json.dumps(data, indent=2)
+
+            raw_course_points = data.get("coursePoints")
+            course_points = raw_course_points if isinstance(raw_course_points, list) else []
+            raw_geo_points = data.get("geoPoints")
+            geo_points = raw_geo_points if isinstance(raw_geo_points, list) else []
+            activity = data.get("activityType") or {}
+            domain = getattr(garmin_client.client, "domain", None)
+            result = {
+                "course_id": data.get("courseId"),
+                "name": data.get("courseName"),
+                "distance_m": (
+                    data.get("distanceInMeters")
+                    if data.get("distanceInMeters") is not None
+                    else data.get("distanceMeter")
+                ),
+                "elevation_gain_m": (
+                    data.get("elevationGainInMeters")
+                    if data.get("elevationGainInMeters") is not None
+                    else data.get("elevationGainMeter")
+                ),
+                "elevation_loss_m": (
+                    data.get("elevationLossInMeters")
+                    if data.get("elevationLossInMeters") is not None
+                    else data.get("elevationLossMeter")
+                ),
+                "activity": activity.get("typeKey"),
+                "waypoints_count": len(course_points),
+                "waypoints": [
+                    {
+                        "name": point.get("name"),
+                        "type": point.get("pointType"),
+                        "lat": point.get("lat"),
+                        "lon": point.get("lon"),
+                        "distance_m": point.get("distance"),
+                    }
+                    for point in course_points
+                    if isinstance(point, dict)
+                ],
+                "geo_points_count": len(geo_points),
+            }
+            if domain:
+                result["url"] = (
+                    f"https://connect.{domain}/modern/course/{course_id}"
+                )
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Error fetching course details: {str(e)}"
+
+    @app.tool()
+    async def download_course_gpx(
+        course_id: int,
+        output_path: Optional[str] = None,
+    ) -> str:
+        """Download a Garmin course as a GPX 1.1 file on the local machine.
+
+        Args:
+            course_id: ID of the course to download.
+            output_path: Optional destination file or directory. Defaults to
+                GARMIN_FIT_DOWNLOAD_DIR or ./courses/{course_id}.gpx.
+        """
+        try:
+            data = garmin_client.client.connectapi(
+                f"/course-service/course/{course_id}"
+            )
+            if not isinstance(data, dict) or not isinstance(data.get("geoPoints"), list):
+                return f"Error: course {course_id} not found or missing geoPoints."
+
+            target_path = _resolve_gpx_output_path(course_id, output_path)
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+            name = data.get("courseName") or f"Garmin Course {course_id}"
+            geo_points = data["geoPoints"]
+            raw_course_points = data.get("coursePoints")
+            course_points = raw_course_points if isinstance(raw_course_points, list) else []
+            lines = [
+                "<?xml version='1.0' encoding='UTF-8'?>",
+                "<gpx version='1.1' creator='GarminConnectMCP' xmlns='http://www.topografix.com/GPX/1/1'>",
+                "  <metadata>",
+                f"    <name>{escape(str(name))}</name>",
+                "  </metadata>",
+            ]
+
+            written_waypoints = 0
+            for point in course_points:
+                if not isinstance(point, dict):
+                    continue
+                lat, lon = point.get("lat"), point.get("lon")
+                if lat is None or lon is None:
+                    continue
+                point_name = point.get("name") or point.get("pointType") or "Waypoint"
+                point_type = point.get("pointType") or "GENERIC"
+                lines.append(
+                    f"  <wpt lat={quoteattr(str(lat))} lon={quoteattr(str(lon))}>"
+                )
+                lines.append(f"    <name>{escape(str(point_name))}</name>")
+                lines.append(f"    <type>{escape(str(point_type))}</type>")
+                lines.append("  </wpt>")
+                written_waypoints += 1
+
+            lines.extend(["  <trk>", f"    <name>{escape(str(name))}</name>", "    <trkseg>"])
+            written_track_points = 0
+            for point in geo_points:
+                if not isinstance(point, dict):
+                    continue
+                lat, lon = point.get("latitude"), point.get("longitude")
+                if lat is None or lon is None:
+                    continue
+                elevation = point.get("elevation")
+                elevation_tag = (
+                    f"<ele>{escape(str(elevation))}</ele>"
+                    if elevation is not None
+                    else ""
+                )
+                lines.append(
+                    f"      <trkpt lat={quoteattr(str(lat))} lon={quoteattr(str(lon))}>"
+                    f"{elevation_tag}</trkpt>"
+                )
+                written_track_points += 1
+            lines.extend(["    </trkseg>", "  </trk>", "</gpx>"])
+
+            with open(target_path, "w", encoding="utf-8") as output_file:
+                output_file.write("\n".join(lines))
+
+            return json.dumps(
+                {
+                    "status": "success",
+                    "course_id": course_id,
+                    "name": name,
+                    "gpx_path": target_path,
+                    "waypoints_count": written_waypoints,
+                    "track_points_count": written_track_points,
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return f"Error downloading course GPX: {str(e)}"
 
     @app.tool()
     async def upload_course(

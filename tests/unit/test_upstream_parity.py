@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from garmin_mcp import (
     activity_analysis,
     activity_management,
+    calendar_events,
     challenges,
     consumer_parity,
     consumer_writes,
@@ -18,6 +19,7 @@ from garmin_mcp import (
     devices,
     gear_management,
     health_wellness,
+    metric_catalog,
     nutrition,
     training,
     user_profile,
@@ -47,6 +49,7 @@ MODULES = [
     activity_analysis,
     consumer_parity,
     consumer_writes,
+    calendar_events,
 ]
 
 INTERNAL_UPSTREAM_METHODS = {
@@ -75,6 +78,7 @@ def _registered_tool_names() -> set[str]:
     for module in MODULES:
         module.configure(client)
         app = module.register_tools(app)
+    app = metric_catalog.register_tools(app)
     app = workout_templates.register_resources(app)
     return asyncio.run(_list_names(app))
 
@@ -92,6 +96,7 @@ def test_every_upstream_consumer_method_has_a_parity_disposition():
         and (inspect.isfunction(value) or inspect.ismethoddescriptor(value))
     }
     registered = _registered_tool_names()
+    assert registered == set(metric_catalog.registered_tool_inventory())
     direct_exposure_gaps = (
         upstream_methods
         - INTERNAL_UPSTREAM_METHODS
@@ -101,4 +106,4 @@ def test_every_upstream_consumer_method_has_a_parity_disposition():
 
     assert not direct_exposure_gaps
     assert all(tool_name in registered for tool_name in CUSTOM_EQUIVALENTS.values())
-    assert len(registered) == 160
+    assert len(registered) == metric_catalog.EXPECTED_TOOL_COUNT

@@ -5,7 +5,7 @@ Training and performance functions for Garmin Connect MCP Server
 import json
 import datetime
 import math
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from garmin_mcp.metrics import recovery_time_hours
 
@@ -409,12 +409,16 @@ def register_tools(app):
                 "activity_id": activity_id,
                 "training_effect": summary.get("trainingEffect"),
                 "aerobic_effect": summary.get("trainingEffect"),
+                "aerobic_training_effect": summary.get("trainingEffect"),
                 "anaerobic_effect": summary.get("anaerobicTrainingEffect"),
+                "anaerobic_training_effect": summary.get("anaerobicTrainingEffect"),
                 "training_effect_label": summary.get("trainingEffectLabel"),
                 # Recovery metrics
                 "recovery_time_hours": recovery_time_hours(summary.get("recoveryTime")),
+                "recovery_time_minutes": summary.get("recoveryTime"),
                 # Training load
                 "training_load": summary.get("activityTrainingLoad"),
+                "exercise_load": summary.get("activityTrainingLoad"),
                 # Additional metrics that may be available
                 "performance_condition": summary.get("performanceCondition"),
             }
@@ -768,6 +772,8 @@ def register_tools(app):
                     "sport": power.get("sport"),
                     "power_date": power.get("calendarDate"),
                     "is_stale": power.get("isStale"),
+                    "source_date": speed_hr.get("calendarDate") or power.get("calendarDate"),
+                    "source_method": "garmin_lactate_threshold_dto",
                 }
 
             # Remove None values
@@ -792,12 +798,12 @@ def register_tools(app):
 
     @app.tool()
     async def get_training_load_trend(start_date: str, end_date: str) -> str:
-        """Get the Performance Management Chart (CTL/ATL/TSB) over a date range.
+        """Get Garmin training-load values plus explicitly local diagnostics.
 
-        Returns Chronic Training Load (CTL, 42-day fitness), Acute Training Load (ATL, 7-day fatigue),
-        Training Stress Balance (TSB = CTL - ATL, form/freshness), and Acute:Chronic Workload Ratio
-        (ACWR) per day. Use this to assess whether the athlete is building fitness, peaking, or
-        accumulating too much fatigue.
+        Garmin supplies acute load, chronic load, and the acute-to-chronic
+        ratio. Historical ATL/CTL/TSB/ACWR aliases remain for compatibility;
+        canonical fields distinguish Garmin values from the locally computed
+        stress balance (chronic minus acute).
 
         Recommended range: 4-8 weeks. Maximum: 90 days.
 
@@ -849,12 +855,17 @@ def register_tools(app):
                     ctl = atl_dto.get("dailyTrainingLoadChronic")
                     acwr = atl_dto.get("dailyAcuteChronicWorkloadRatio")
                     if atl is not None:
+                        entry["garmin_acute_load"] = round(atl, 1)
                         entry["atl"] = round(atl, 1)
                     if ctl is not None:
+                        entry["garmin_chronic_load"] = round(ctl, 1)
                         entry["ctl"] = round(ctl, 1)
                     if atl is not None and ctl is not None:
-                        entry["tsb"] = round(ctl - atl, 1)
+                        local_tsb = round(ctl - atl, 1)
+                        entry["local_training_stress_balance"] = local_tsb
+                        entry["tsb"] = local_tsb
                     if acwr is not None:
+                        entry["garmin_acute_chronic_load_ratio"] = round(acwr, 2)
                         entry["acwr"] = round(acwr, 2)
                     acwr_status = atl_dto.get("acwrStatus")
                     if acwr_status:
@@ -1292,5 +1303,173 @@ def register_tools(app):
             "period_avg_sleep_breaths_per_min": avg_sleep_overall,
             "trend": trend,
         }, indent=2)
+
+    @app.tool()
+    async def get_running_tolerance_trend(
+        start_date: str,
+        end_date: str,
+        aggregation: Literal["daily", "weekly"] = "weekly",
+    ) -> str:
+        """Get Running Tolerance trend over a date range.
+
+        Running Tolerance moves slowly — its value is in the trajectory, not any
+        single day. Returns, per period: tolerance_km (current load capacity),
+        acute_load_km (intensity-adjusted load), distance_km (actual distance
+        run), and load_ratio (acute_load_km / distance_km — how much intensity
+        inflates the cost of each kilometer). Weekly aggregation (default) gives
+        a compact multi-month view; daily gives day-to-day resolution for a
+        shorter window.
+
+        Recommended range: 4-12 weeks. Maximum: 90 days for daily aggregation,
+        366 days for weekly (this endpoint returns the whole range in one call,
+        so the limit protects output size, not request volume).
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+            aggregation: "daily" or "weekly" (default "weekly")
+        """
+        try:
+            start = datetime.date.fromisoformat(start_date)
+            end = datetime.date.fromisoformat(end_date)
+        except ValueError as e:
+            return f"Invalid date format: {e}. Use YYYY-MM-DD."
+
+        days = (end - start).days + 1
+        if days < 1:
+            return "end_date must be on or after start_date."
+
+        max_days = 90 if aggregation == "daily" else 366
+        if days > max_days:
+            return (
+                f"Date range too large ({days} days). Maximum is {max_days} "
+                f"days for {aggregation} aggregation."
+            )
+
+        try:
+            data = garmin_client.get_running_tolerance(
+                start_date, end_date, aggregation=aggregation
+            )
+        except Exception as e:
+            return f"Error retrieving running tolerance trend: {str(e)}"
+
+        if not data:
+            return "Your device does not support this metric."
+
+        trend = []
+        for entry in data:
+            if aggregation == "daily":
+                tolerance = entry.get("acuteTolerance")
+                acute_load = entry.get("acuteImpactLoad")
+                distance = entry.get("acuteDistance")
+            else:
+                tolerance = entry.get("tolerance")
+                acute_load = entry.get("totalImpactLoad")
+                distance = entry.get("totalDistance")
+
+            point: Dict[str, Any] = {"date": entry.get("calendarDate")}
+            if tolerance is not None:
+                point["tolerance_km"] = round(tolerance / 1000, 2)
+            if acute_load is not None:
+                point["acute_load_km"] = round(acute_load / 1000, 2)
+            if distance is not None:
+                point["distance_km"] = round(distance / 1000, 2)
+            if acute_load is not None and distance:
+                point["load_ratio"] = round(acute_load / distance, 2)
+
+            if aggregation == "daily":
+                feedback = entry.get("runningToleranceFeedBackPhrase")
+                if feedback:
+                    point["feedback_phrase"] = feedback
+            else:
+                if entry.get("startOfWeek") is not None:
+                    point["start_of_week"] = entry.get("startOfWeek")
+                if entry.get("endOfWeek") is not None:
+                    point["end_of_week"] = entry.get("endOfWeek")
+                if entry.get("weekIndex") is not None:
+                    point["week_index"] = entry.get("weekIndex")
+
+            trend.append(point)
+
+        # The daily aggregation is not returned in chronological order by the API.
+        trend.sort(key=lambda p: p.get("date") or "")
+
+        tolerance_values = [p["tolerance_km"] for p in trend if "tolerance_km" in p]
+        first_tolerance = tolerance_values[0] if tolerance_values else None
+        latest_tolerance = tolerance_values[-1] if tolerance_values else None
+        change = (
+            round(latest_tolerance - first_tolerance, 2)
+            if first_tolerance is not None and latest_tolerance is not None
+            else None
+        )
+
+        return json.dumps({
+            "start_date": start_date,
+            "end_date": end_date,
+            "aggregation": aggregation,
+            "data_points": len(trend),
+            "first_tolerance_km": first_tolerance,
+            "latest_tolerance_km": latest_tolerance,
+            "tolerance_change_km": change,
+            "trend": trend,
+        }, indent=2)
+
+    @app.tool()
+    async def get_acclimation(date: str) -> str:
+        """Get heat and altitude acclimation status for a given date.
+
+        Garmin tracks how adapted the athlete currently is to training in heat
+        and at altitude. heat_acclimation_percent runs 0-100 and decays without
+        continued exposure; use it to judge readiness for a warm-weather race.
+
+        heat_trend reports Garmin's own label (e.g. ACCLIMATIZED). The
+        previous_* fields hold the prior reading so direction of travel is
+        visible without a second call.
+
+        VO2 max is not returned here; use get_training_status or get_vo2max_trend.
+
+        Args:
+            date: Date in YYYY-MM-DD format
+        """
+        try:
+            data = garmin_client.get_max_metrics(date)
+        except Exception as e:
+            return f"Error retrieving acclimation data: {str(e)}"
+
+        if isinstance(data, list):
+            data = data[0] if data else None
+        if not isinstance(data, dict):
+            return f"No acclimation data found for {date}."
+
+        acc = _as_dict(data.get("heatAltitudeAcclimation"))
+        if not acc:
+            return (
+                f"No acclimation data found for {date}. Garmin populates this only "
+                "after outdoor activities in heat or at altitude."
+            )
+
+        result: Dict[str, Any] = {"date": acc.get("calendarDate", date)}
+
+        for out_key, in_key in (
+            ("heat_acclimation_percent", "heatAcclimationPercentage"),
+            ("previous_heat_acclimation_percent", "previousHeatAcclimationPercentage"),
+            ("heat_trend", "heatTrend"),
+            ("heat_acclimation_date", "heatAcclimationDate"),
+            ("previous_heat_acclimation_date", "previousHeatAcclimationDate"),
+            ("altitude_acclimation_meters", "altitudeAcclimation"),
+            ("previous_altitude_acclimation_meters", "previousAltitudeAcclimation"),
+            ("altitude_trend", "altitudeTrend"),
+            ("current_altitude_meters", "currentAltitude"),
+        ):
+            value = acc.get(in_key)
+            if value is not None:
+                result[out_key] = value
+
+        heat = result.get("heat_acclimation_percent")
+        prev = result.get("previous_heat_acclimation_percent")
+        if isinstance(heat, (int, float)) and isinstance(prev, (int, float)):
+            result["heat_acclimation_change"] = round(heat - prev, 1)
+
+        return json.dumps(result, indent=2)
 
     return app

@@ -29,10 +29,12 @@ from garmin_mcp import challenges
 from garmin_mcp import courses
 from garmin_mcp import consumer_parity
 from garmin_mcp import consumer_writes
+from garmin_mcp import calendar_events
 from garmin_mcp import data_management
 from garmin_mcp import devices
 from garmin_mcp import gear_management
 from garmin_mcp import health_wellness
+from garmin_mcp import metric_catalog
 from garmin_mcp import nutrition
 from garmin_mcp import training
 from garmin_mcp import user_profile
@@ -62,6 +64,7 @@ MODULES = [
     activity_analysis,
     consumer_parity,
     consumer_writes,
+    calendar_events,
 ]
 
 MUTATING_TOOLS = {
@@ -103,6 +106,7 @@ MUTATING_TOOLS = {
     "set_activity_type",
     "set_blood_pressure",
     "set_fit_download_dir",
+    "set_nutrition_daily_settings",
     "set_perceived_effort",
     "unschedule_workout",
     "unschedule_workouts",
@@ -191,6 +195,7 @@ def build_app(client: Any) -> FastMCP:
     for module in MODULES:
         module.configure(client)
         app = module.register_tools(app)
+    app = metric_catalog.register_tools(app)
     app = workout_templates.register_resources(app)
     return app
 
@@ -476,6 +481,7 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
     name = tool_name
     one_day = {"date": ctx.today}
     date_range = {"start_date": ctx.start_date, "end_date": ctx.end_date}
+    bounded_range = {"start_date": ctx.end_date, "end_date": ctx.end_date}
     schedule_workout_id = ctx.created_workout_ids[0] if ctx.created_workout_ids else None
     actual_today = date.today().isoformat()
 
@@ -515,6 +521,9 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
     if name == "set_fit_download_dir":
         return None, "missing dependency: persistent FIT directory mutation is not sweep-owned"
 
+    if name == "set_nutrition_daily_settings":
+        return None, "missing dependency: nutrition-goal mutation is not sweep-owned"
+
     if name in {"unschedule_workout", "unschedule_workouts"}:
         return None, "missing dependency: scheduled workout cleanup is not sweep-owned"
 
@@ -532,6 +541,9 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
 
     if name in {"get_golf_scorecard", "get_golf_shot_data"}:
         return None, "missing dependency: scorecard_id"
+
+    if name == "download_course_gpx":
+        return None, "missing dependency: local course-download output is not sweep-owned"
 
     if name == "get_scheduled_workout_by_id":
         return None, "missing dependency: scheduled_workout_id"
@@ -593,10 +605,15 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_inprogress_virtual_challenges": {"start": 1, "limit": 5},
         "get_all_day_events": one_day,
         "get_all_day_stress": one_day,
+        "get_acclimation": one_day,
         "get_blood_pressure": date_range,
         "get_body_battery": date_range,
         "get_body_battery_events": one_day,
         "get_body_composition": date_range,
+        "get_calendar_events": {
+            "start_date": ctx.end_date,
+            "end_date": ctx.end_date,
+        },
         "get_courses": {},
         "get_custom_food_serving_units": {},
         "get_custom_foods": {"search": "", "start": 0, "limit": 5},
@@ -611,11 +628,13 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_fitnessage_data": {"date": ctx.today, "details": False},
         "get_floors": one_day,
         "get_full_name": {},
+        "get_garmin_coach_workouts": {"calendar_date": ctx.today},
         "get_gear": {"include_stats": True},
         "get_golf_summary": {},
         "get_goals": {"goal_type": "active"},
         "get_heart_rates": one_day,
         "get_heart_rates_summary": one_day,
+        "get_heart_rate_zones": {},
         "get_hill_score": date_range,
         "get_hrv_data": {"date": ctx.today, "return_timeseries": False},
         "get_hrv_trend": date_range,
@@ -626,11 +645,13 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_menstrual_calendar_data": date_range,
         "get_menstrual_data_for_date": one_day,
         "get_morning_training_readiness": one_day,
+        "get_metric_catalog": {},
         "get_intensity_minutes_data": one_day,
         "get_max_metrics": one_day,
         "get_nutrition_daily_food_log": one_day,
         "get_nutrition_daily_meals": one_day,
         "get_nutrition_daily_settings": one_day,
+        "get_nutrition_summary_between_dates": bounded_range,
         "get_personal_record": {},
         "get_power_duration_curve": {"num_activities": 10, "activity_type": "cycling"},
         "get_pregnancy_summary": {},
@@ -642,16 +663,20 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_respiration_trend": date_range,
         "get_rhr_day": one_day,
         "get_scheduled_workouts": date_range,
+        "search_foods": {"query": "", "start": 0, "limit": 5},
         "get_sleep_data": one_day,
         "get_sleep_summary": one_day,
+        "get_sleep_summary_range": bounded_range,
         "get_spo2_data": one_day,
         "get_stats": one_day,
         "get_stats_and_body": one_day,
+        "get_stats_range": bounded_range,
         "get_steps_data": one_day,
         "get_stress_data": one_day,
         "get_stress_summary": one_day,
         "get_training_load_trend": date_range,
         "get_training_load_balance": {"date": ctx.today},
+        "get_energy_balance": bounded_range,
         "get_training_plan_workouts": {"calendar_date": ctx.today},
         "get_training_plans": {},
         "get_training_readiness": one_day,
@@ -734,6 +759,15 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
             "max_polyline": 100,
         }, None
 
+    if name == "get_course_details":
+        missing = dependency("course_id", ctx.course_id)
+        if missing:
+            return missing
+        return {"course_id": ctx.course_id}, None
+
+    if name == "get_running_tolerance_trend":
+        return {**bounded_range, "aggregation": "weekly"}, None
+
     if name == "get_running_tolerance":
         return {
             "start_date": ctx.start_date,
@@ -765,6 +799,7 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         "get_activity",
         "get_activity_exercise_sets",
         "get_activity_fit_data",
+        "get_activity_fit_messages",
         "get_activity_gear",
         "get_activity_hr_in_timezones",
         "get_activity_power_in_timezones",
@@ -780,6 +815,8 @@ def arguments_for(tool_name: str, ctx: SweepContext) -> tuple[dict[str, Any] | N
         args: dict[str, Any] = {"activity_id": ctx.activity_id}
         if name == "get_activity_fit_data":
             args["include_records"] = False
+        elif name == "get_activity_fit_messages":
+            args.update({"include_records": False, "message_limit": 100})
         return args, None
 
     if name == "set_activity_name":

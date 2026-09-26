@@ -3,6 +3,7 @@ import json
 from datetime import date
 from types import SimpleNamespace
 
+from garmin_mcp import metric_catalog
 from scripts import live_tool_sweep as sweep
 
 
@@ -55,7 +56,7 @@ class FrozenDate(date):
 
 def test_live_sweep_has_argument_recipe_for_every_registered_tool(monkeypatch):
     monkeypatch.setattr(sweep, "date", FrozenDate)
-    assert len(registered_tool_names()) == 160
+    assert len(registered_tool_names()) == metric_catalog.EXPECTED_TOOL_COUNT
     missing = {}
     for tool_name in registered_tool_names():
         _args, skip_reason = sweep.arguments_for(tool_name, complete_context())
@@ -75,6 +76,7 @@ def test_live_sweep_has_argument_recipe_for_every_registered_tool(monkeypatch):
         "set_activity_name": "missing dependency: existing activity mutation is not sweep-owned",
         "set_activity_type": "missing dependency: existing activity mutation is not sweep-owned",
         "set_fit_download_dir": "missing dependency: persistent FIT directory mutation is not sweep-owned",
+        "set_nutrition_daily_settings": "missing dependency: nutrition-goal mutation is not sweep-owned",
         "set_perceived_effort": "missing dependency: existing activity mutation is not sweep-owned",
         "set_activity_exercise_sets": "missing dependency: live cleanup is not sweep-owned",
         "set_gear_default": "missing dependency: live cleanup is not sweep-owned",
@@ -84,6 +86,7 @@ def test_live_sweep_has_argument_recipe_for_every_registered_tool(monkeypatch):
         "upload_activity": "missing dependency: live cleanup is not sweep-owned",
         "import_activity": "missing dependency: live cleanup is not sweep-owned",
         "delete_weigh_in": "missing dependency: live cleanup is not sweep-owned",
+        "download_course_gpx": "missing dependency: local course-download output is not sweep-owned",
         "get_gear_defaults": "missing dependency: user_profile_number",
         "get_golf_scorecard": "missing dependency: scorecard_id",
         "get_golf_shot_data": "missing dependency: scorecard_id",
